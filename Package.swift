@@ -7,6 +7,8 @@ let package = Package(
     targets: [
         .target(name: "QuickShotCore"),
         .executableTarget(name: "QuickShot", dependencies: ["QuickShotCore"]),
-        .testTarget(name: "QuickShotCoreTests", dependencies: ["QuickShotCore"]),
+        .target(name: "TestSupport", path: "Tests/TestSupport"),
+        .testTarget(name: "QuickShotCoreTests", dependencies: ["QuickShotCore", "TestSupport"]),
+        .testTarget(name: "QuickShotTests", dependencies: ["QuickShot", "QuickShotCore", "TestSupport"]),
     ]
 )

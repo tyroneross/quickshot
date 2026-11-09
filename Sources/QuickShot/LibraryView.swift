@@ -10,10 +10,18 @@ enum Copy {
     static let nothingSaved = "Nothing was saved. The capture was cancelled, copied to the clipboard, or saved to another location from the toolbar."
 }
 
+/// The few colour strengths the interface uses, in one place so the contrast
+/// tests measure the same values the views draw.
+enum Palette {
+    /// Supporting text is the label colour at this strength. System secondary
+    /// text falls below 4.5:1 on a window background.
+    static let supportingTextOpacity = 0.72
+    /// Selection and banner backgrounds are a colour at this strength.
+    static let tintOpacity = 0.12
+}
+
 extension Color {
-    /// Supporting text. System secondary text falls below 4.5:1 on a window
-    /// background, so metadata uses the primary colour at reduced strength.
-    static let supportingText = Color.primary.opacity(0.72)
+    static let supportingText = Color.primary.opacity(Palette.supportingTextOpacity)
 }
 
 struct LibraryView: View {
@@ -171,7 +179,7 @@ struct CaptureCard: View {
             }
             .padding(8)
             .background(
-                isSelected ? Color.accentColor.opacity(0.12) : Color.clear,
+                isSelected ? Color.accentColor.opacity(Palette.tintOpacity) : Color.clear,
                 in: RoundedRectangle(cornerRadius: 8)
             )
             .overlay {
@@ -299,7 +307,7 @@ struct Banner: View {
         .padding(.vertical, 8)
         .padding(.leading, 16)
         .padding(.trailing, 12)
-        .background(tone.color.opacity(0.12))
+        .background(tone.color.opacity(Palette.tintOpacity))
         .overlay(alignment: .leading) {
             Rectangle().fill(tone.color).frame(width: 3)
         }

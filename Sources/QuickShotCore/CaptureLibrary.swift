@@ -2,12 +2,22 @@ import Foundation
 
 /// One capture on disk.
 public struct CaptureItem: Identifiable, Hashable, Sendable {
+    public init(url: URL, kind: CaptureKind, created: Date, byteCount: Int) {
+        self.url = url
+        self.kind = kind
+        self.created = created
+        self.byteCount = byteCount
+    }
+
     public let url: URL
     public let kind: CaptureKind
     public let created: Date
     public let byteCount: Int
 
-    public var id: URL { url }
+    /// The file name. The captures folder is flat, so the name is unique, and
+    /// unlike a URL it does not vary with how the folder path was spelled
+    /// (`/var` and `/private/var` name the same folder).
+    public var id: String { url.lastPathComponent }
     public var name: String { url.deletingPathExtension().lastPathComponent }
 }
 

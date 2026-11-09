@@ -141,7 +141,7 @@ final class AppModel {
         case .captured(let files):
             let outcome = CaptureFiler.fileAll(files, into: library.directory)
             reload()
-            if let newest = outcome.filed.last { selection = newest }
+            if let newest = outcome.filed.last { selection = newest.lastPathComponent }
             if !outcome.problems.isEmpty { notice = .failed(outcome.problems.joined(separator: " ")) }
             showLibrary()
         case .cancelled:

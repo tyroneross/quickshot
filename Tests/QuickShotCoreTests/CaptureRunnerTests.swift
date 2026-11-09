@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import TestSupport
 @testable import QuickShotCore
 
 /// These tests spawn a real child process. A shell script stands in for the
