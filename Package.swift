@@ -6,9 +6,11 @@ let package = Package(
     platforms: [.macOS(.v15)],
     targets: [
         .target(name: "QuickShotCore"),
-        .executableTarget(name: "QuickShot", dependencies: ["QuickShotCore"]),
+        .target(name: "ClipboardCore"),
+        .executableTarget(name: "QuickShot", dependencies: ["QuickShotCore", "ClipboardCore"]),
         .target(name: "TestSupport", path: "Tests/TestSupport"),
         .testTarget(name: "QuickShotCoreTests", dependencies: ["QuickShotCore", "TestSupport"]),
-        .testTarget(name: "QuickShotTests", dependencies: ["QuickShot", "QuickShotCore", "TestSupport"]),
+        .testTarget(name: "ClipboardCoreTests", dependencies: ["ClipboardCore", "TestSupport"]),
+        .testTarget(name: "QuickShotTests", dependencies: ["QuickShot", "QuickShotCore", "ClipboardCore", "TestSupport"]),
     ]
 )
