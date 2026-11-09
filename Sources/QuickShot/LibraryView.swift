@@ -94,6 +94,9 @@ struct CaptureBar: View {
     var body: some View {
         HStack(spacing: Layout.spacing) {
             switch model.activeCapture {
+            case .recording where model.isSavingRecording:
+                CaptureStatus(title: "Saving the recording", hint: "Shrinking it to 1080p")
+                Spacer(minLength: Layout.spacing)
             case .recording:
                 Circle().fill(.red).frame(width: 10, height: 10).accessibilityHidden(true)
                 CaptureStatus(title: "Recording", hint: "\(Shortcut.recording.words) also stops it")

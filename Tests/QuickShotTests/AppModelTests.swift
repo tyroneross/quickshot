@@ -197,6 +197,67 @@ import Testing
         #expect(harness.model.notice == nil)
     }
 
+    /// Codex, 2026-11-09: while the shrunk copy is being written the UI still
+    /// said "Recording", so a second Stop (or Stop, Save and Quit) cancelled
+    /// the export and filed the full-size movie. Stop and Cancel now do
+    /// nothing in that phase, and the phase is visible.
+    @Test func stopAndCancelDoNothingWhileTheRecordingIsBeingSaved() async throws {
+        let harness = try Harness(tool: Tool.recordsUntilInterrupted)
+        harness.model.start()
+        let gate = Gate()
+        let completed = Counter()
+        let original = harness.model.shrink
+        harness.model.shrink = { source in
+            await gate.wait()
+            try Task.checkCancellation()
+            let small = try await original(source)
+            completed.add()
+            return small
+        }
+
+        harness.model.capture(.recording)
+        try await harness.waitUntil { harness.toolRan }
+        harness.model.stopRecording()
+        try await harness.waitUntil { harness.model.isSavingRecording }
+        #expect(harness.model.activeCapture == .recording, "still busy: the window stays out of it")
+
+        harness.model.stopRecording()
+        harness.model.cancelCapture()
+        gate.open()
+        try await harness.waitUntilIdle()
+
+        #expect(!harness.model.isSavingRecording)
+        #expect(harness.model.items.count == 1)
+        #expect(completed.count == 1, "the export ran to the end: neither Stop nor Cancel reached it")
+        #expect(harness.model.notice == nil)
+    }
+
+    /// The window is not pulled forward after a capture: a notification says
+    /// it was saved. The window returns only if it was open before.
+    @Test func aCaptureNotifiesAndLeavesAClosedWindowClosed() async throws {
+        let harness = try Harness(tool: Tool.writesPNG, windowVisible: false)
+        harness.model.start()
+        let notified = Notified()
+        harness.model.notify = { notified.record($0) }
+
+        harness.model.capture(.area)
+        try await harness.waitUntilIdle()
+
+        #expect(notified.items.count == 1)
+        #expect(notified.items.first?.kind == .image)
+        #expect(notified.items.first?.id == harness.model.selection)
+        #expect(!harness.windowVisible, "a closed window stays closed; the notification did the telling")
+    }
+
+    @Test func aCaptureBringsBackAWindowThatWasOpen() async throws {
+        let harness = try Harness(tool: Tool.writesPNG, windowVisible: true)
+        harness.model.start()
+        harness.model.capture(.area)
+        #expect(!harness.windowVisible)
+        try await harness.waitUntilIdle()
+        #expect(harness.windowVisible)
+    }
+
     @Test func aDemoRecordingIsKeptAsRecorded() async throws {
         let harness = try Harness(tool: Tool.recordsUntilInterrupted)
         harness.model.start()
@@ -503,4 +564,27 @@ final class Counter: @unchecked Sendable {
     private var value = 0
     func add() { lock.withLock { value += 1 } }
     var count: Int { lock.withLock { value } }
+}
+
+/// Holds an async step open until the test opens it.
+final class Gate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var opened = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func open() {
+        let pending = lock.withLock { opened = true; let w = waiters; waiters = []; return w }
+        pending.forEach { $0.resume() }
+    }
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumeNow = lock.withLock { opened ? true : { waiters.append(continuation); return false }() }
+            if resumeNow { continuation.resume() }
+        }
+    }
+}
+
+@MainActor
+final class Notified {
+    private(set) var items: [CaptureItem] = []
+    func record(_ item: CaptureItem) { items.append(item) }
 }

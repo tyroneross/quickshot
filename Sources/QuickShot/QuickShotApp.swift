@@ -32,6 +32,8 @@ struct MenuContent: View {
 
     var body: some View {
         switch model.activeCapture {
+        case .recording where model.isSavingRecording:
+            Text("Saving the recording")
         case .recording:
             Button("Stop Recording") { model.stopRecording() }
                 .keyboardShortcut(Shortcut.recording.keyboardShortcut)
@@ -45,9 +47,10 @@ struct MenuContent: View {
             Button("Record Screen") { model.capture(.recording) }
                 .keyboardShortcut(Shortcut.recording.keyboardShortcut)
             @Bindable var model = model
-            Picker("Recording Quality", selection: $model.recordingPreset) {
-                Text("Quick").tag(RecordingPreset.quick)
-                Text("Demo").tag(RecordingPreset.demo)
+            Picker("Recording Preset", selection: $model.recordingPreset) {
+                ForEach(RecordingPreset.allCases, id: \.self) { preset in
+                    Text(preset.menuTitle).tag(preset)
+                }
             }
         }
         Divider()
@@ -71,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The clipboard library, or `nil` when its store could not be opened.
     private(set) var clipboard: ClipboardModel?
     private let hotKeys = HotKeyCenter()
+    private let notifier = CaptureNotifier()
     /// One line per shortcut press and per registration, so "the shortcut
     /// does nothing" can be split into "never arrived" and "arrived, then
     /// refused" from the system log.
@@ -83,6 +87,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.showLibrary = { [weak self] in self?.showLibrary() }
         model.hideLibrary = { [weak self] in self?.window?.orderOut(nil) }
         model.isLibraryVisible = { [weak self] in self?.window?.isVisible ?? false }
+        model.notify = { [weak self] item in self?.notifier.notify(item) }
+        notifier.open = { [weak self] id in
+            guard let self else { return }
+            model.selection = id
+            showLibrary()
+        }
         model.start()
         startClipboard()
         registerHotKeys()
@@ -135,6 +145,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let active = model.activeCapture else { return .terminateNow }
+        if model.isSavingRecording {
+            // The recording is made; only the small copy is being written.
+            model.whenIdle { sender.reply(toApplicationShouldTerminate: true) }
+            return .terminateLater
+        }
         let alert = NSAlert()
         switch active {
         case .recording:
@@ -181,6 +196,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showLibrary() {
+        // Not while a full-screen capture waits for the window to leave the
+        // screen: a Dock click or Show Captures now would put it in the picture.
+        guard model.activeCapture != .fullScreen else { return }
         if window == nil { window = LibraryWindow.make(model: model) }
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)

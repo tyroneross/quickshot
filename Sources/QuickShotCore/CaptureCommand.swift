@@ -25,7 +25,16 @@ public enum RecordingPreset: String, Sendable, CaseIterable {
     public var meaning: String {
         switch self {
         case .quick: "Small 1080p file, clicks shown, no audio."
-        case .demo: "Full quality with microphone and system audio."
+        case .demo: "Native resolution with microphone and system audio."
+        }
+    }
+
+    /// A menu item that says what changes, since a menu has no room for
+    /// the meaning beside it.
+    public var menuTitle: String {
+        switch self {
+        case .quick: "Quick: 1080p, no audio"
+        case .demo: "Demo: native resolution, microphone and system audio"
         }
     }
 }

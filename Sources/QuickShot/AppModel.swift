@@ -31,6 +31,10 @@ final class AppModel {
     private(set) var items: [CaptureItem] = []
     /// The capture in progress, if any.
     private(set) var activeCapture: CaptureMode?
+    /// True from the moment the recorder has written its movie until the
+    /// shrunk copy is filed. Stop and Cancel do nothing in this phase: the
+    /// recording is already made, and cancelling would only lose the export.
+    private(set) var isSavingRecording = false
     /// How Record records. Kept between launches.
     var recordingPreset: RecordingPreset {
         didSet { defaults.set(recordingPreset.rawValue, forKey: Self.presetKey) }
@@ -57,6 +61,8 @@ final class AppModel {
     @ObservationIgnored private let defaults: UserDefaults
     /// Shrinks a Quick recording. Injectable: tests use a stand-in.
     @ObservationIgnored var shrink: @Sendable (URL) async throws -> URL = { try await MovieShrinker.shrink($0) }
+    /// Tells the person a capture was saved, without raising the window.
+    @ObservationIgnored var notify: @MainActor (CaptureItem) -> Void = { _ in }
     /// How long the window is given to leave the screen before a full-screen
     /// capture, so QuickShot is not in its own picture.
     static let fullScreenDelay: Duration = .milliseconds(300)
@@ -172,7 +178,12 @@ final class AppModel {
             }
             let result = Task.isCancelled ? CaptureResult.cancelled : await runner.run(mode, preset: preset)
             log.notice("capture end: \(mode.rawValue, privacy: .public) -> \(String(describing: result), privacy: .public)")
-            let final = (mode == .recording && preset == .quick) ? await shrunk(result) : result
+            var final = result
+            if mode == .recording, preset == .quick, case .captured? = result {
+                isSavingRecording = true
+                final = await shrunk(result)
+                isSavingRecording = false
+            }
             activeCapture = nil
             handle(final)
             let waiters = idleWaiters
@@ -209,12 +220,13 @@ final class AppModel {
     /// Closes the system picker without saving. Cancelling the task covers
     /// every moment of a capture, including before the tool has started.
     func cancelCapture() {
+        guard !isSavingRecording else { return }
         captureTask?.cancel()
     }
 
     /// Ends the recording in progress and keeps it.
     func stopRecording() {
-        guard activeCapture == .recording else { return }
+        guard activeCapture == .recording, !isSavingRecording else { return }
         // Stop pressed before the recorder has started: nothing is recorded
         // yet, so cancel it rather than lose the request.
         if !runner.finishRecording() { captureTask?.cancel() }
@@ -284,12 +296,17 @@ final class AppModel {
         case .captured(let files):
             let outcome = CaptureFiler.fileAll(files, into: library.directory)
             reload()
-            if let newest = outcome.filed.last { selection = newest.lastPathComponent }
+            if let newest = outcome.filed.last {
+                selection = newest.lastPathComponent
+                if let item = selectedItem { notify(item) }
+            }
             if !outcome.problems.isEmpty {
                 let earlier: [String] = if case .problem(let text)? = notice { [text] } else { [] }
                 notice = .problem((earlier + outcome.problems).joined(separator: " "))
             }
-            showLibrary()
+            // The notification says it was saved; the window comes back only
+            // where it was, or when there is a problem to read.
+            if libraryWasVisible || !outcome.problems.isEmpty { showLibrary() }
         case .cancelled:
             notice = .nothingSaved
             if libraryWasVisible { showLibrary() }
