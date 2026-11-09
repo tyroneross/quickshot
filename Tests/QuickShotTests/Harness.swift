@@ -33,6 +33,8 @@ final class Harness {
     let model: AppModel
     let appRecorder = FakeAppRecorder()
     private(set) var windowVisible: Bool
+    private(set) var flashes = 0
+    private(set) var copied: [CaptureItem] = []
     private(set) var windowEvents: [String] = []
 
     /// - Parameter tool: shell body for the stand-in tool; `$OUT` is the
@@ -49,6 +51,9 @@ final class Harness {
             screenAccess: access.screenAccess,
             defaults: UserDefaults(suiteName: "QuickShotTests.\(UUID().uuidString)")!
         )
+        model.flash = { [unowned self] in flashes += 1 }
+        model.copyToClipboard = { [unowned self] item in copied.append(item); return true }
+        model.shrinkImage = { $0 }
         model.countdownTick = .milliseconds(20)
         model.countsDown = false
         model.appRecorder = appRecorder

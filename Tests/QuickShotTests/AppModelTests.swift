@@ -238,7 +238,7 @@ import Testing
         let harness = try Harness(tool: Tool.writesPNG, windowVisible: false)
         harness.model.start()
         let notified = Notified()
-        harness.model.notify = { notified.record($0); return true }
+        harness.model.notify = { item, _ in notified.record(item); return true }
 
         harness.model.capture(.area)
         try await harness.waitUntilIdle()
@@ -255,7 +255,7 @@ import Testing
     @Test func whenNoNotificationCanBeShownTheWindowIsShownInstead() async throws {
         let harness = try Harness(tool: Tool.writesPNG, windowVisible: false)
         harness.model.start()
-        harness.model.notify = { _ in false }
+        harness.model.notify = { _, _ in false }
         harness.model.capture(.area)
         try await harness.waitUntilIdle()
         try await harness.waitUntil { harness.windowVisible }
@@ -268,7 +268,7 @@ import Testing
         let harness = try Harness(tool: Tool.recordsUntilInterrupted, windowVisible: false)
         harness.model.start()
         harness.model.shrink = { _ in throw MovieShrinker.Failure.exportFailed("no encoder") }
-        harness.model.notify = { _ in Issue.record("a problem is shown in the window, not hidden behind a notification"); return true }
+        harness.model.notify = { _, _ in Issue.record("a problem is shown in the window, not hidden behind a notification"); return true }
         harness.model.capture(.recording)
         try await harness.waitUntil { harness.toolRan }
         harness.model.stopRecording()
@@ -364,6 +364,73 @@ import Testing
         first.countsDown = false
         let second = AppModel(screenAccess: ScreenAccess(isGranted: { false }, request: {}), defaults: defaults)
         #expect(second.recordingTarget == .area && second.countsDown == false)
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    @Test func aScreenshotFlashesAndGoesToTheClipboardARecordingDoesNotFlash() async throws {
+        let harness = try Harness(tool: Tool.writesPNG)
+        harness.model.start()
+        #expect(harness.model.copiesToClipboard && harness.model.fidelity == .lower, "defaults: copy on, lower fidelity")
+
+        harness.model.capture(.area)
+        try await harness.waitUntilIdle()
+        #expect(harness.flashes == 1)
+        #expect(harness.copied.count == 1)
+        #expect(harness.copied.first?.id == harness.model.selection)
+        #expect(harness.model.copiedItem == harness.model.selection, "the card says Copied")
+
+        let recorder = try Harness(tool: Tool.recordsUntilInterrupted)
+        recorder.model.start()
+        recorder.model.capture(.recording)
+        try await recorder.waitUntil { recorder.toolRan }
+        recorder.model.stopRecording()
+        try await recorder.waitUntilIdle()
+        #expect(recorder.flashes == 0, "a recording ends with Stop, not a flash")
+        #expect(recorder.copied.count == 1)
+    }
+
+    @Test func copyingToTheClipboardCanBeTurnedOff() async throws {
+        let harness = try Harness(tool: Tool.writesPNG)
+        harness.model.start()
+        harness.model.copiesToClipboard = false
+        harness.model.capture(.area)
+        try await harness.waitUntilIdle()
+        #expect(harness.copied.isEmpty)
+        #expect(harness.model.items.count == 1)
+    }
+
+    @Test func lowerFidelityShrinksAScreenshotAndHighKeepsIt() async throws {
+        let lower = try Harness(tool: Tool.writesPNG)
+        lower.model.start()
+        let shrunk = Counter()
+        lower.model.shrinkImage = { source in
+            shrunk.add()
+            let small = source.deletingPathExtension().appendingPathExtension("1x").appendingPathExtension("png")
+            try FileManager.default.copyItem(at: source, to: small)
+            return small
+        }
+        lower.model.capture(.area)
+        try await lower.waitUntilIdle()
+        #expect(shrunk.count == 1)
+        #expect(lower.model.items.count == 1, "only the small copy is filed")
+
+        let high = try Harness(tool: Tool.writesPNG)
+        high.model.start()
+        high.model.fidelity = .high
+        high.model.shrinkImage = { _ in Issue.record("high fidelity must not shrink"); throw ImageShrinker.Failure.notAnImage }
+        high.model.capture(.area)
+        try await high.waitUntilIdle()
+        #expect(high.model.items.count == 1)
+    }
+
+    @Test func fidelityAndClipboardChoicesAreRemembered() throws {
+        let suite = "QuickShotTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let first = AppModel(screenAccess: ScreenAccess(isGranted: { false }, request: {}), defaults: defaults)
+        first.fidelity = .high
+        first.copiesToClipboard = false
+        let second = AppModel(screenAccess: ScreenAccess(isGranted: { false }, request: {}), defaults: defaults)
+        #expect(second.fidelity == .high && second.copiesToClipboard == false)
         defaults.removePersistentDomain(forName: suite)
     }
 

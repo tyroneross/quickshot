@@ -9,6 +9,9 @@ struct QuickShotApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
+        Settings {
+            SettingsView().environment(delegate.model)
+        }
         MenuBarExtra {
             MenuContent(delegate: delegate).environment(delegate.model)
         } label: {
@@ -59,6 +62,9 @@ struct MenuContent: View {
                 }
             }
             Toggle("Count Down \(AppModel.countdownSeconds) Seconds First", isOn: $model.countsDown)
+            Divider()
+            SettingsLink { Text("Settings…") }
+                .keyboardShortcut(",")
         }
         Divider()
         Button("Show Captures") { model.showLibrary() }
@@ -94,7 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.showLibrary = { [weak self] in self?.showLibrary() }
         model.hideLibrary = { [weak self] in self?.window?.orderOut(nil) }
         model.isLibraryVisible = { [weak self] in self?.window?.isVisible ?? false }
-        model.notify = { [weak self] item in await self?.notifier.notify(item) ?? false }
+        model.notify = { [weak self] item, copied in await self?.notifier.notify(item, copied: copied) ?? false }
         notifier.open = { [weak self] id in
             guard let self else { return }
             model.selection = id
@@ -233,5 +239,39 @@ enum LibraryWindow {
         window.center()
         window.setFrameAutosaveName("QuickShotLibrary")
         return window
+    }
+}
+
+/// The few choices that are not on the window itself.
+struct SettingsView: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section("Screenshots") {
+                Picker("Fidelity", selection: $model.fidelity) {
+                    ForEach(ScreenshotFidelity.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.radioGroup)
+                Toggle("Copy every capture to the clipboard", isOn: $model.copiesToClipboard)
+            }
+            Section("Recordings") {
+                Picker("Preset", selection: $model.recordingPreset) {
+                    ForEach(RecordingPreset.allCases, id: \.self) { Text($0.menuTitle).tag($0) }
+                }
+                .pickerStyle(.radioGroup)
+                Toggle("Count down \(AppModel.countdownSeconds) seconds before recording", isOn: $model.countsDown)
+            }
+            Section("Shortcuts") {
+                LabeledContent("Full Screen", value: Shortcut.fullScreen.words)
+                LabeledContent("Area", value: Shortcut.area.words)
+                LabeledContent("Record (last choice)", value: Shortcut.recording.words)
+                LabeledContent("Clipboard", value: Shortcut.clipboard.words)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 440)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }

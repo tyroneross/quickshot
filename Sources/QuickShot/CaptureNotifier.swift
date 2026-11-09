@@ -27,7 +27,7 @@ final class CaptureNotifier: NSObject, UNUserNotificationCenterDelegate {
     /// Returns `false` when the person will not see a notification (not
     /// allowed, or the system refused it), so the caller can show the window
     /// instead: a saved capture always gives a signal.
-    func notify(_ item: CaptureItem) async -> Bool {
+    func notify(_ item: CaptureItem, copied: Bool) async -> Bool {
         guard let center else { return false }
         if !asked {
             asked = true
@@ -37,7 +37,9 @@ final class CaptureNotifier: NSObject, UNUserNotificationCenterDelegate {
         guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return false }
         let content = UNMutableNotificationContent()
         content.title = item.kind == .image ? "Screenshot saved" : "Recording saved"
-        content.body = "\(item.url.lastPathComponent) is in QuickShot. Click to see it."
+        content.body = copied
+            ? "On the clipboard and in QuickShot. Click to see it."
+            : "\(item.url.lastPathComponent) is in QuickShot. Click to see it."
         content.categoryIdentifier = Self.category
         content.userInfo = [Self.itemKey: item.id]
         let copy = Self.attachmentCopy(for: item)

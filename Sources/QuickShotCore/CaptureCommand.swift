@@ -10,6 +10,22 @@ public enum CaptureMode: String, Sendable, CaseIterable {
     case recording
 }
 
+/// How much of a screenshot's detail is kept.
+public enum ScreenshotFidelity: String, Sendable, CaseIterable {
+    /// Retina screenshots are halved to their size in points: about a quarter
+    /// of the file, still sharp enough to read. The default.
+    case lower
+    /// Every pixel, as captured.
+    case high
+
+    public var title: String {
+        switch self {
+        case .lower: "Lower (smaller file)"
+        case .high: "High (every pixel)"
+        }
+    }
+}
+
 /// What a recording shows.
 public enum RecordingTarget: String, Sendable, CaseIterable {
     /// The main display.

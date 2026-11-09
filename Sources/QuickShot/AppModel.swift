@@ -48,11 +48,21 @@ final class AppModel {
     var countsDown: Bool {
         didSet { defaults.set(countsDown, forKey: Self.countdownKey) }
     }
+    /// How much detail a screenshot keeps. Lower by default.
+    var fidelity: ScreenshotFidelity {
+        didSet { defaults.set(fidelity.rawValue, forKey: Self.fidelityKey) }
+    }
+    /// Whether every capture is also put on the clipboard. On by default.
+    var copiesToClipboard: Bool {
+        didSet { defaults.set(copiesToClipboard, forKey: Self.copyKey) }
+    }
     /// The seconds left before the recording starts, while counting down.
     private(set) var countdown: Int?
     static let presetKey = "recordingPreset"
     static let targetKey = "recordingTarget"
     static let countdownKey = "recordingCountsDown"
+    static let fidelityKey = "screenshotFidelity"
+    static let copyKey = "copiesToClipboard"
     static let countdownSeconds = 3
     var isCapturing: Bool { activeCapture != nil }
     var notice: Notice?
@@ -77,7 +87,13 @@ final class AppModel {
     @ObservationIgnored var shrink: @Sendable (URL) async throws -> URL = { try await MovieShrinker.shrink($0) }
     /// Tells the person a capture was saved, without raising the window.
     /// Returns `false` when it could not, so the window is shown instead.
-    @ObservationIgnored var notify: @MainActor (CaptureItem) async -> Bool = { _ in false }
+    @ObservationIgnored var notify: @MainActor (CaptureItem, _ copied: Bool) async -> Bool = { _, _ in false }
+    /// Halves a Retina screenshot. Injectable: tests use a stand-in.
+    @ObservationIgnored var shrinkImage: @Sendable (URL) throws -> URL = { try ImageShrinker.shrink($0) }
+    /// Shows the flash. Injectable: tests count it.
+    @ObservationIgnored var flash: @MainActor () -> Void = { CaptureFlash.show() }
+    /// Puts a capture on the clipboard. Injectable: tests use a scratch board.
+    @ObservationIgnored var copyToClipboard: @MainActor (CaptureItem) -> Bool = { CaptureActions.copy($0) }
     /// Records one app or window. Injectable: tests use a stand-in.
     @ObservationIgnored var appRecorder: any AppRecording = WindowRecorder()
     /// One second of the countdown. Tests shorten it.
@@ -117,6 +133,8 @@ final class AppModel {
         self.recordingPreset = defaults.string(forKey: Self.presetKey).flatMap(RecordingPreset.init) ?? .quick
         self.recordingTarget = defaults.string(forKey: Self.targetKey).flatMap(RecordingTarget.init) ?? .screen
         self.countsDown = defaults.object(forKey: Self.countdownKey) as? Bool ?? true
+        self.fidelity = defaults.string(forKey: Self.fidelityKey).flatMap(ScreenshotFidelity.init) ?? .lower
+        self.copiesToClipboard = defaults.object(forKey: Self.copyKey) as? Bool ?? true
     }
 
     var selectedItem: CaptureItem? {
@@ -220,9 +238,11 @@ final class AppModel {
                 isSavingRecording = true
                 final = await shrunk(result)
                 isSavingRecording = false
+            } else if mode != .recording, fidelity == .lower, case .captured? = result {
+                final = shrunkImages(result)
             }
             activeCapture = nil
-            handle(final)
+            handle(final, mode: mode)
             let waiters = idleWaiters
             idleWaiters = []
             waiters.forEach { $0() }
@@ -341,6 +361,19 @@ final class AppModel {
         return result
     }
 
+    /// Replaces each Retina screenshot with its 1x version. A picture that
+    /// cannot be shrunk is kept as taken.
+    private func shrunkImages(_ result: CaptureResult?) -> CaptureResult? {
+        guard case .captured(let files)? = result else { return result }
+        var kept: [URL] = []
+        for file in files {
+            guard CaptureFormat.detect(file)?.kind == .image, let small = try? shrinkImage(file) else { kept.append(file); continue }
+            if small != file { try? FileManager.default.removeItem(at: file) }
+            kept.append(small)
+        }
+        return .captured(kept)
+    }
+
     /// Replaces each movie in a Quick recording with its 1080p version. If a
     /// movie cannot be shrunk it is kept as recorded and the reason is shown.
     private func shrunk(_ result: CaptureResult?) async -> CaptureResult? {
@@ -362,9 +395,13 @@ final class AppModel {
         return .captured(kept)
     }
 
-    private func handle(_ result: CaptureResult?) {
+    /// Whether the newest capture went to the clipboard, for the notification.
+    private(set) var lastCopied = false
+
+    private func handle(_ result: CaptureResult?, mode: CaptureMode) {
         switch result {
         case .captured(let files):
+            if mode != .recording { flash() }
             let outcome = CaptureFiler.fileAll(files, into: library.directory)
             reload()
             if !outcome.problems.isEmpty {
@@ -376,13 +413,19 @@ final class AppModel {
                 selection = newest.lastPathComponent
                 return selectedItem
             }
+            lastCopied = false
+            if copiesToClipboard, let item {
+                lastCopied = copyToClipboard(item)
+                if lastCopied { copiedItem = item.id }
+            }
             // The window comes back where it was, or when there is a problem
             // to read. Otherwise the notification says it was saved; if that
             // cannot reach the person, the window does.
             if libraryWasVisible || hasProblem {
                 showLibrary()
             } else if let item {
-                Task { if await !notify(item) { showLibrary() } }
+                let copied = lastCopied
+                Task { if await !notify(item, copied) { showLibrary() } }
             }
         case .cancelled:
             notice = .nothingSaved
