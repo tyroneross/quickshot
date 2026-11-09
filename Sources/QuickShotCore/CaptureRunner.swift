@@ -40,7 +40,7 @@ public final class CaptureRunner: @unchecked Sendable {
     ///
     /// Cancelling the calling task cancels the capture at any point: before
     /// launch nothing is started, after launch the tool is terminated.
-    public func run(_ mode: CaptureMode, preset: RecordingPreset = .quick) async -> CaptureResult? {
+    public func run(_ mode: CaptureMode, target: RecordingTarget = .screen, preset: RecordingPreset = .quick) async -> CaptureResult? {
         let id = UUID().uuidString
         let scratch = scratchRoot.appendingPathComponent("QuickShot-\(id)", isDirectory: true)
         let process = Process()
@@ -72,7 +72,7 @@ public final class CaptureRunner: @unchecked Sendable {
 
         let output = scratch.appendingPathComponent(CaptureCommand.requestedFileName(for: mode))
         process.executableURL = executable
-        process.arguments = CaptureCommand.arguments(for: mode, preset: preset, output: output)
+        process.arguments = CaptureCommand.arguments(for: mode, target: target, preset: preset, output: output)
         process.standardOutput = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
 

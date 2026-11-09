@@ -39,7 +39,21 @@ final class AppModel {
     var recordingPreset: RecordingPreset {
         didSet { defaults.set(recordingPreset.rawValue, forKey: Self.presetKey) }
     }
+    /// What Record records: the screen, an area, or one app. Kept between
+    /// launches, and the shortcut repeats it.
+    var recordingTarget: RecordingTarget {
+        didSet { defaults.set(recordingTarget.rawValue, forKey: Self.targetKey) }
+    }
+    /// Whether a recording counts down from three before it starts.
+    var countsDown: Bool {
+        didSet { defaults.set(countsDown, forKey: Self.countdownKey) }
+    }
+    /// The seconds left before the recording starts, while counting down.
+    private(set) var countdown: Int?
     static let presetKey = "recordingPreset"
+    static let targetKey = "recordingTarget"
+    static let countdownKey = "recordingCountsDown"
+    static let countdownSeconds = 3
     var isCapturing: Bool { activeCapture != nil }
     var notice: Notice?
     var selection: CaptureItem.ID?
@@ -63,6 +77,10 @@ final class AppModel {
     @ObservationIgnored var shrink: @Sendable (URL) async throws -> URL = { try await MovieShrinker.shrink($0) }
     /// Tells the person a capture was saved, without raising the window.
     @ObservationIgnored var notify: @MainActor (CaptureItem) -> Void = { _ in }
+    /// Records one app or window. Injectable: tests use a stand-in.
+    @ObservationIgnored var appRecorder: any AppRecording = WindowRecorder()
+    /// One second of the countdown. Tests shorten it.
+    @ObservationIgnored var countdownTick: Duration = .seconds(1)
     /// How long the window is given to leave the screen before a full-screen
     /// capture, so QuickShot is not in its own picture.
     static let fullScreenDelay: Duration = .milliseconds(300)
@@ -96,6 +114,8 @@ final class AppModel {
         self.screenAccess = screenAccess
         self.defaults = defaults
         self.recordingPreset = defaults.string(forKey: Self.presetKey).flatMap(RecordingPreset.init) ?? .quick
+        self.recordingTarget = defaults.string(forKey: Self.targetKey).flatMap(RecordingTarget.init) ?? .screen
+        self.countsDown = defaults.object(forKey: Self.countdownKey) as? Bool ?? true
     }
 
     var selectedItem: CaptureItem? {
@@ -150,6 +170,12 @@ final class AppModel {
         if notice == .permissionNeeded, screenAccess.isGranted() { notice = nil }
     }
 
+    /// Records what `recordingTarget` names, with the remembered options.
+    func record(_ target: RecordingTarget) {
+        recordingTarget = target
+        capture(.recording)
+    }
+
     /// Opens the system picker. Ignored while a capture is already running.
     func capture(_ mode: CaptureMode) {
         // Not while the app is reopening: this copy is about to quit.
@@ -169,14 +195,24 @@ final class AppModel {
         libraryWasVisible = isLibraryVisible()
         hideLibrary()
         let preset = recordingPreset
-        log.notice("capture start: \(mode.rawValue, privacy: .public) \(mode == .recording ? preset.rawValue : "", privacy: .public)")
+        let target = recordingTarget
+        let countsDown = countsDown
+        log.notice("capture start: \(mode.rawValue, privacy: .public) \(mode == .recording ? "\(target.rawValue) \(preset.rawValue)" : "", privacy: .public)")
         captureTask = Task {
             if mode == .fullScreen {
                 // Give the window time to leave the screen. A cancel here ends
                 // the capture before the tool starts.
                 try? await Task.sleep(for: Self.fullScreenDelay)
             }
-            let result = Task.isCancelled ? CaptureResult.cancelled : await runner.run(mode, preset: preset)
+            let result: CaptureResult?
+            if Task.isCancelled {
+                result = .cancelled
+            } else if mode == .recording, target == .app {
+                result = await recordApp(preset: preset, countsDown: countsDown)
+            } else {
+                if mode == .recording, countsDown { await countDown() }
+                result = Task.isCancelled ? .cancelled : await runner.run(mode, target: target, preset: preset)
+            }
             log.notice("capture end: \(mode.rawValue, privacy: .public) -> \(String(describing: result), privacy: .public)")
             var final = result
             if mode == .recording, preset == .quick, case .captured? = result {
@@ -221,12 +257,16 @@ final class AppModel {
     /// every moment of a capture, including before the tool has started.
     func cancelCapture() {
         guard !isSavingRecording else { return }
+        if activeCapture == .recording, recordingTarget == .app { appRecorder.cancel() }
         captureTask?.cancel()
     }
 
     /// Ends the recording in progress and keeps it.
     func stopRecording() {
         guard activeCapture == .recording, !isSavingRecording else { return }
+        // Stop during the countdown: nothing is recorded yet, so cancel.
+        if countdown != nil { captureTask?.cancel(); return }
+        if recordingTarget == .app { appRecorder.stop(); return }
         // Stop pressed before the recorder has started: nothing is recorded
         // yet, so cancel it rather than lose the request.
         if !runner.finishRecording() { captureTask?.cancel() }
@@ -268,6 +308,36 @@ final class AppModel {
             notice = .problem("Could not move \(item.url.lastPathComponent) to the Trash: \(error.localizedDescription)")
         }
         reload()
+    }
+
+    /// Three, two, one. A cancel during the count ends the capture before
+    /// anything is recorded.
+    private func countDown() async {
+        for left in stride(from: Self.countdownSeconds, through: 1, by: -1) {
+            if Task.isCancelled { break }
+            countdown = left
+            try? await Task.sleep(for: countdownTick)
+        }
+        countdown = nil
+    }
+
+    /// The picker first, so the count runs on the chosen window.
+    private func recordApp(preset: RecordingPreset, countsDown: Bool) async -> CaptureResult {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("QuickShot-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        } catch {
+            return .failed("Could not create a scratch folder: \(error.localizedDescription)")
+        }
+        let output = scratch.appendingPathComponent(CaptureCommand.requestedFileName(for: .recording))
+        // A cancel reaches the recorder through `cancelCapture()`.
+        let result = await appRecorder.record(to: output, preset: preset) { [weak self] in
+            guard let self, countsDown else { return !Task.isCancelled }
+            await countDown()
+            return !Task.isCancelled
+        }
+        if case .captured = result {} else { rmdir(scratch.path) }
+        return result
     }
 
     /// Replaces each movie in a Quick recording with its 1080p version. If a

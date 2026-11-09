@@ -97,6 +97,14 @@ struct CaptureBar: View {
             case .recording where model.isSavingRecording:
                 CaptureStatus(title: "Saving the recording", hint: "Shrinking it to 1080p")
                 Spacer(minLength: Layout.spacing)
+            case .recording where model.countdown != nil:
+                CaptureStatus(title: "Recording in \(model.countdown ?? 0)", hint: "\(model.recordingTarget.title), \(model.recordingPreset == .quick ? "Quick" : "Demo")")
+                Spacer(minLength: Layout.spacing)
+                Button("Cancel", systemImage: "xmark.circle") { model.cancelCapture() }
+                    .labelStyle(.titleAndIcon)
+                    .controlSize(.large)
+                    .help("Do not start the recording")
+                    .accessibilityIdentifier("cancel-capture")
             case .recording:
                 Circle().fill(.red).frame(width: 10, height: 10).accessibilityHidden(true)
                 CaptureStatus(title: "Recording", hint: "\(Shortcut.recording.words) also stops it")
@@ -128,11 +136,7 @@ struct CaptureBar: View {
                     model.capture(.area)
                 }
                 .accessibilityIdentifier("capture-area")
-                CaptureTile(title: "Record", symbol: "record.circle", symbolColor: .red, shortcut: .recording,
-                            help: "Record the screen (\(Shortcut.recording.words))") {
-                    model.capture(.recording)
-                }
-                .accessibilityIdentifier("record-screen")
+                RecordMenu()
             }
         }
         .padding(Layout.padding)
@@ -220,6 +224,36 @@ struct CaptureStatus: View {
     }
 }
 
+/// The Record tile opens a menu: what to record, how, and whether to count
+/// down. The shortcut repeats the last choice without the menu.
+struct RecordMenu: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        Menu {
+            ForEach(RecordingTarget.allCases, id: \.self) { target in
+                Button(target.title) { model.record(target) }
+            }
+            Divider()
+            Picker("Recording Preset", selection: $model.recordingPreset) {
+                ForEach(RecordingPreset.allCases, id: \.self) { Text($0.menuTitle).tag($0) }
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Toggle("Count Down \(AppModel.countdownSeconds) Seconds First", isOn: $model.countsDown)
+        } label: {
+            TileLabel(title: "Record", symbol: "record.circle", symbolColor: .red,
+                      subtitle: "\(model.recordingTarget.title) ▾", subtitleLabel: "\(model.recordingTarget.title), menu, \(Shortcut.recording.words)")
+        }
+        .menuStyle(.button)
+        .buttonStyle(TileButtonStyle())
+        .menuIndicator(.hidden)
+        .help("Record the screen, an area, or one app (\(Shortcut.recording.words) repeats the last choice)")
+        .accessibilityIdentifier("record-screen")
+    }
+}
+
 /// One large capture button: a plain symbol, its name, and its shortcut as
 /// key symbols.
 struct CaptureTile: View {
@@ -232,22 +266,36 @@ struct CaptureTile: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 3) {
-                Image(systemName: symbol)
-                    .font(.system(size: 26))
-                    .foregroundStyle(symbolColor)
-                    .accessibilityHidden(true)
-                Text(title)
-                    .font(.body.weight(.medium))
-                Text(shortcut.glyphs)
-                    .font(.subheadline)
-                    .foregroundStyle(Color.supportingText)
-                    .accessibilityLabel(shortcut.words)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            TileLabel(title: title, symbol: symbol, symbolColor: symbolColor,
+                      subtitle: shortcut.glyphs, subtitleLabel: shortcut.words)
         }
         .buttonStyle(TileButtonStyle())
         .help(help)
+    }
+}
+
+struct TileLabel: View {
+    let title: String
+    let symbol: String
+    let symbolColor: Color
+    let subtitle: String
+    let subtitleLabel: String
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Image(systemName: symbol)
+                .font(.system(size: 26))
+                .foregroundStyle(symbolColor)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.body.weight(.medium))
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(Color.supportingText)
+                .lineLimit(1)
+                .accessibilityLabel(subtitleLabel)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

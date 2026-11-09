@@ -35,6 +35,16 @@ import TestSupport
         }
     }
 
+    @Test func anAreaRecordingAsksForTheAreaWithTheCrosshairFirst() {
+        let movie = URL(fileURLWithPath: "/tmp/scratch/capture.mov")
+        #expect(CaptureCommand.arguments(for: .recording, target: .area, preset: .quick, output: movie) == ["-i", "-s", "-v", "-k", "/tmp/scratch/capture.mov"])
+        #expect(CaptureCommand.arguments(for: .recording, target: .screen, preset: .quick, output: movie) == ["-v", "-k", "/tmp/scratch/capture.mov"])
+    }
+
+    @Test func everyTargetHasATitleForTheMenu() {
+        #expect(RecordingTarget.allCases.map(\.title) == ["Entire Screen", "Area", "App or Window"])
+    }
+
     @Test func eachPresetSaysWhatItDoes() {
         for preset in RecordingPreset.allCases {
             #expect(!preset.meaning.isEmpty)
@@ -50,11 +60,13 @@ import TestSupport
     @Test func noModeUsesAFlagThatIgnoresTheFilePath() {
         for mode in CaptureMode.allCases {
             for preset in RecordingPreset.allCases {
-                let arguments = CaptureCommand.arguments(for: mode, preset: preset, output: output)
+                for target in RecordingTarget.allCases {
+                let arguments = CaptureCommand.arguments(for: mode, target: target, preset: preset, output: output)
                 for forbidden in ["-U", "-u", "-p", "-c"] {
                     #expect(!arguments.contains(forbidden), "\(mode) \(preset) passes \(forbidden)")
                 }
                 #expect(arguments.last == output.path, "the file path must be the last argument")
+                }
             }
         }
     }

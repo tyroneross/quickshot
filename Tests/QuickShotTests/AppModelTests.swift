@@ -258,6 +258,87 @@ import Testing
         #expect(harness.windowVisible)
     }
 
+    @Test func anAppRecordingUsesTheWindowRecorderAndIsFiledLikeAnyOther() async throws {
+        let harness = try Harness(tool: Tool.fails)
+        harness.model.start()
+
+        harness.model.record(.app)
+        try await harness.waitUntil { harness.appRecorder.started == 1 }
+        #expect(harness.model.activeCapture == .recording)
+        #expect(!harness.toolRan, "the system tool plays no part in an app recording")
+        harness.model.stopRecording()
+        try await harness.waitUntilIdle()
+
+        #expect(harness.model.items.count == 1)
+        #expect(harness.model.items.first?.kind == .video)
+        #expect(harness.model.recordingTarget == .app, "the shortcut repeats the last choice")
+        #expect(harness.model.notice == nil)
+    }
+
+    @Test func cancellingAnAppRecordingKeepsNothing() async throws {
+        let harness = try Harness(tool: Tool.fails)
+        harness.model.start()
+        harness.model.record(.app)
+        try await harness.waitUntil { harness.appRecorder.started == 1 }
+        harness.model.cancelCapture()
+        try await harness.waitUntilIdle()
+        #expect(harness.model.items.isEmpty)
+        #expect(harness.model.notice == .nothingSaved)
+    }
+
+    @Test func theCountdownRunsBeforeTheRecorderAndCancelStopsIt() async throws {
+        let harness = try Harness(tool: Tool.recordsUntilInterrupted)
+        harness.model.start()
+        harness.model.countsDown = true
+
+        harness.model.capture(.recording)
+        try await harness.waitUntil { harness.model.countdown != nil }
+        #expect(harness.model.countdown == AppModel.countdownSeconds)
+        #expect(!harness.toolRan, "nothing records during the count")
+        harness.model.stopRecording() // Stop during the count means: do not start.
+        try await harness.waitUntilIdle()
+
+        #expect(!harness.toolRan)
+        #expect(harness.model.countdown == nil)
+        #expect(harness.model.items.isEmpty)
+    }
+
+    @Test func theCountdownEndsAndTheRecordingStarts() async throws {
+        let harness = try Harness(tool: Tool.recordsUntilInterrupted)
+        harness.model.start()
+        harness.model.countsDown = true
+        harness.model.capture(.recording)
+        try await harness.waitUntil { harness.toolRan }
+        #expect(harness.model.countdown == nil)
+        harness.model.stopRecording()
+        try await harness.waitUntilIdle()
+        #expect(harness.model.items.count == 1)
+    }
+
+    @Test func anAppRecordingCountsDownAfterThePick() async throws {
+        let harness = try Harness(tool: Tool.fails)
+        harness.model.start()
+        harness.model.countsDown = true
+        harness.model.record(.app)
+        try await harness.waitUntil { harness.appRecorder.countedDown }
+        try await harness.waitUntil { harness.appRecorder.started == 1 }
+        harness.model.stopRecording()
+        try await harness.waitUntilIdle()
+        #expect(harness.model.items.count == 1)
+    }
+
+    @Test func theTargetAndCountdownAreRememberedBetweenLaunches() throws {
+        let suite = "QuickShotTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let first = AppModel(screenAccess: ScreenAccess(isGranted: { false }, request: {}), defaults: defaults)
+        #expect(first.recordingTarget == .screen && first.countsDown == true, "defaults: the screen, with a countdown")
+        first.recordingTarget = .area
+        first.countsDown = false
+        let second = AppModel(screenAccess: ScreenAccess(isGranted: { false }, request: {}), defaults: defaults)
+        #expect(second.recordingTarget == .area && second.countsDown == false)
+        defaults.removePersistentDomain(forName: suite)
+    }
+
     @Test func aDemoRecordingIsKeptAsRecorded() async throws {
         let harness = try Harness(tool: Tool.recordsUntilInterrupted)
         harness.model.start()

@@ -31,6 +31,7 @@ final class Harness {
     let captures: TempFolder
     let access: AccessBox
     let model: AppModel
+    let appRecorder = FakeAppRecorder()
     private(set) var windowVisible: Bool
     private(set) var windowEvents: [String] = []
 
@@ -48,6 +49,9 @@ final class Harness {
             screenAccess: access.screenAccess,
             defaults: UserDefaults(suiteName: "QuickShotTests.\(UUID().uuidString)")!
         )
+        model.countdownTick = .milliseconds(20)
+        model.countsDown = false
+        model.appRecorder = appRecorder
         // The shrink step stands in for the real export: a copy of the movie
         // with the name the real step would give it.
         model.shrink = { source in
@@ -107,4 +111,31 @@ func writeRealPNG(to url: URL, width: Int = 640, height: Int = 400, hue: CGFloat
     }
     NSGraphicsContext.restoreGraphicsState()
     try rep.representation(using: .png, properties: [:])!.write(to: url)
+}
+
+/// Stands in for the window recorder: "picks" at once, records until stop,
+/// then writes a movie, unless cancelled.
+@MainActor
+final class FakeAppRecorder: AppRecording {
+    private(set) var started = 0
+    private(set) var countedDown = false
+    private var stopped = false
+    private var cancelled = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func record(to output: URL, preset: RecordingPreset, beforeStart: @MainActor () async -> Bool) async -> CaptureResult {
+        stopped = false
+        cancelled = false
+        let go = await beforeStart()
+        countedDown = true
+        guard go, !cancelled else { return .cancelled }
+        started += 1
+        if !stopped { await withCheckedContinuation { waiter = $0 } }
+        if cancelled { return .cancelled }
+        try? Data(Fixture.mov).write(to: output)
+        return .captured([output])
+    }
+
+    func stop() { stopped = true; waiter?.resume(); waiter = nil }
+    func cancel() { cancelled = true; waiter?.resume(); waiter = nil }
 }

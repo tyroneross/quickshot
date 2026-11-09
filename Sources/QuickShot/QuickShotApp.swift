@@ -34,6 +34,8 @@ struct MenuContent: View {
         switch model.activeCapture {
         case .recording where model.isSavingRecording:
             Text("Saving the recording")
+        case .recording where model.countdown != nil:
+            Button("Cancel Recording") { model.cancelCapture() }
         case .recording:
             Button("Stop Recording") { model.stopRecording() }
                 .keyboardShortcut(Shortcut.recording.keyboardShortcut)
@@ -44,14 +46,19 @@ struct MenuContent: View {
                 .keyboardShortcut(Shortcut.fullScreen.keyboardShortcut)
             Button("Capture Area") { model.capture(.area) }
                 .keyboardShortcut(Shortcut.area.keyboardShortcut)
-            Button("Record Screen") { model.capture(.recording) }
-                .keyboardShortcut(Shortcut.recording.keyboardShortcut)
+            Menu("Record") {
+                ForEach(RecordingTarget.allCases, id: \.self) { target in
+                    Button(target.title) { model.record(target) }
+                        .keyboardShortcut(target == model.recordingTarget ? Shortcut.recording.keyboardShortcut : nil)
+                }
+            }
             @Bindable var model = model
             Picker("Recording Preset", selection: $model.recordingPreset) {
                 ForEach(RecordingPreset.allCases, id: \.self) { preset in
                     Text(preset.menuTitle).tag(preset)
                 }
             }
+            Toggle("Count Down \(AppModel.countdownSeconds) Seconds First", isOn: $model.countsDown)
         }
         Divider()
         Button("Show Captures") { model.showLibrary() }

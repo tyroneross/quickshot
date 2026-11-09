@@ -10,6 +10,25 @@ public enum CaptureMode: String, Sendable, CaseIterable {
     case recording
 }
 
+/// What a recording shows.
+public enum RecordingTarget: String, Sendable, CaseIterable {
+    /// The main display.
+    case screen
+    /// An area dragged with the mouse, using the system crosshair.
+    case area
+    /// One window or one app, chosen in the system picker. Other windows are
+    /// left out even where they overlap.
+    case app
+
+    public var title: String {
+        switch self {
+        case .screen: "Entire Screen"
+        case .area: "Area"
+        case .app: "App or Window"
+        }
+    }
+}
+
 /// How a recording is made. The system tool always records at the display's
 /// native resolution; the presets differ in what is recorded alongside and
 /// in whether the movie is shrunk afterwards.
@@ -48,20 +67,23 @@ public enum RecordingPreset: String, Sendable, CaseIterable {
 public enum CaptureCommand {
     public static let systemExecutable = URL(fileURLWithPath: "/usr/sbin/screencapture")
 
-    public static func arguments(for mode: CaptureMode, preset: RecordingPreset = .quick, output: URL) -> [String] {
+    public static func arguments(
+        for mode: CaptureMode, target: RecordingTarget = .screen, preset: RecordingPreset = .quick, output: URL
+    ) -> [String] {
         switch mode {
         case .fullScreen:
             // No flags: the tool writes one file per screen, named from this
             // path, and exits at once.
-            [output.path]
+            return [output.path]
         case .area:
-            ["-i", output.path]
+            return ["-i", output.path]
         case .recording:
+            // -v records; -i -s first asks for an area with the crosshair.
             // -k draws mouse clicks. -g adds the microphone, -A the system audio.
-            switch preset {
-            case .quick: ["-v", "-k", output.path]
-            case .demo: ["-v", "-k", "-g", "-A", output.path]
-            }
+            // An app recording is not made by the tool (see WindowRecorder).
+            let where_: [String] = target == .area ? ["-i", "-s"] : []
+            let audio: [String] = preset == .demo ? ["-g", "-A"] : []
+            return where_ + ["-v", "-k"] + audio + [output.path]
         }
     }
 
