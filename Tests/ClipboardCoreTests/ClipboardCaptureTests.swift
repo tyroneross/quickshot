@@ -294,26 +294,36 @@ final class LazyText: NSObject, NSPasteboardItemDataProvider, @unchecked Sendabl
         #expect(!secret.wasRead)
     }
 
-    /// The clipboard is replaced by a secret while an ordinary copy is being
-    /// read. The checks were made for the first copy, so the read is dropped,
-    /// and the secret is judged on its own at the next check.
+    /// The clipboard is replaced while a copy is being read: the checks were
+    /// made for the first copy, but the content that comes back belongs to the
+    /// second. The read stands in for that race by changing the pasteboard and
+    /// returning the newcomer's text. The monitor must drop it.
     @Test func aClipboardThatChangesDuringTheReadIsNotRecorded() throws {
-        let harness = try Harness()
-        let ordinary = harness.scratch.setLazyText("ordinary text")
-        let pasteboard = harness.scratch.pasteboard
-        ordinary.onRead = {
-            let secret = NSPasteboardItem()
-            secret.setString("hunter2", forType: .string)
-            secret.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
-            pasteboard.clearContents()
-            pasteboard.writeObjects([secret])
-        }
+        let folder = try TempFolder()
+        let store = try ClipStore(directory: folder.url)
+        let scratch = ScratchPasteboard()
+        scratch.setText("before launch")
+        var reads = 0
+        let monitor = ClipboardMonitor(
+            pasteboard: scratch.pasteboard, store: store, frontmostApp: { "com.example.editor" }, accessDenied: { false },
+            read: { pasteboard, sourceApp, recentApps in
+                reads += 1
+                if reads == 1 {
+                    // Another app replaces the clipboard with a marked secret mid-read.
+                    scratch.setText("hunter2", extra: [NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")])
+                    return .item(.text("hunter2"))
+                }
+                return ClipboardReader.read(pasteboard, sourceApp: sourceApp, recentApps: recentApps)
+            },
+            onChange: {})
+        scratch.setText("ordinary text")
 
-        harness.monitor.tick()
-        #expect(harness.texts.isEmpty, "a read that straddled a clipboard change was recorded")
+        monitor.tick()
+        #expect(try store.items(in: .history).isEmpty, "a read that straddled a clipboard change was recorded")
 
-        harness.monitor.tick()
-        #expect(harness.texts.isEmpty, "the secret that replaced it must be skipped too")
+        monitor.tick()
+        #expect(reads == 2, "the replaced clipboard must be read again on the next check")
+        #expect(try store.items(in: .history).isEmpty, "the secret that replaced it must be skipped")
     }
 
     @Test func pausedHistoryRecordsNothingAndDoesNotCatchUpLater() throws {

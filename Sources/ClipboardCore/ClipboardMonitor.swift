@@ -20,6 +20,7 @@ public final class ClipboardMonitor {
     private let store: ClipStore
     private let frontmostApp: () -> String?
     private let accessDenied: () -> Bool
+    private let read: Read
     private let onChange: () -> Void
     private var lastChangeCount: Int
     private var timer: Timer?
@@ -38,17 +39,23 @@ public final class ClipboardMonitor {
     ///     whatever is in front.
     ///   - accessDenied: whether macOS denies this app the clipboard.
     ///   - onChange: called after an item is recorded or the state changes.
+    /// Reads one copy from a pasteboard: the pasteboard, the app the copy is
+    /// attributed to, and the apps in front since the last check.
+    public typealias Read = (NSPasteboard, String?, Set<String>) -> ClipboardReader.Outcome
+
     public init(
         pasteboard: NSPasteboard = .general,
         store: ClipStore,
         frontmostApp: @escaping () -> String? = ClipboardMonitor.systemFrontmostApp,
         accessDenied: (() -> Bool)? = nil,
+        read: @escaping Read = { ClipboardReader.read($0, sourceApp: $1, recentApps: $2) },
         onChange: @escaping () -> Void
     ) {
         self.pasteboard = pasteboard
         self.store = store
         self.frontmostApp = frontmostApp
         self.accessDenied = accessDenied ?? { Self.systemDenies(pasteboard) }
+        self.read = read
         self.onChange = onChange
         // What was copied before launch is not history.
         lastChangeCount = pasteboard.changeCount
@@ -110,7 +117,7 @@ public final class ClipboardMonitor {
         let count = pasteboard.changeCount
         guard count != lastChangeCount else { return }
         lastChangeCount = count
-        let outcome = ClipboardReader.read(pasteboard, sourceApp: current, recentApps: recentApps)
+        let outcome = read(pasteboard, current, recentApps)
         // The checks and the content must describe the same copy. If the
         // clipboard changed while it was being read, drop this read; the next
         // check sees the new copy and judges it on its own.
