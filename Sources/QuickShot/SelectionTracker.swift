@@ -1,46 +1,64 @@
 import AppKit
 
 /// Works out where an Area screenshot was taken, so the flash can frame it.
-/// The system crosshair does not report its rectangle, so this watches the
-/// mouse while the crosshair is up: the press and the release are the two
-/// corners; a plain click is window mode, and the window under the pointer
-/// is the area. Mouse events need no permission to observe.
+/// The system crosshair does not report its rectangle, and it swallows the
+/// mouse events before any observer in another app sees them (measured
+/// 2026-11-09). So, while the crosshair is up, this polls the pointer and
+/// the button state, which need no permission: the press and the release are
+/// the two corners; a plain click is window mode, and the window under the
+/// pointer is the area.
 @MainActor
 final class SelectionTracker {
-    private var monitors: [Any] = []
-    private var pressed: NSPoint?
-    private var released: NSPoint?
+    private var timer: Timer?
+    private var wasDown = false
+    private(set) var pressed: NSPoint?
+    private(set) var released: NSPoint?
     /// A drag shorter than this is a click: window mode.
     static let clickTolerance: CGFloat = 4
+    /// Polling rate. The pointer can move a few points between the real
+    /// press and the poll; the captured image's own size corrects the rest.
+    static let interval: TimeInterval = 1.0 / 120
 
     func start() {
         stop()
         pressed = nil
         released = nil
-        monitors = [
-            // The position is read in the callback itself, before the pointer
-            // can move on. Global monitors are delivered on the main thread.
-            NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
-                MainActor.assumeIsolated { self?.pressed = NSEvent.mouseLocation }
-            },
-            NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
-                MainActor.assumeIsolated { self?.released = NSEvent.mouseLocation }
-            },
-        ].compactMap { $0 }
+        wasDown = NSEvent.pressedMouseButtons & 1 != 0
+        let timer = Timer(timeInterval: Self.interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.poll() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 
     func stop() {
-        monitors.forEach { NSEvent.removeMonitor($0) }
-        monitors = []
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func poll() {
+        let isDown = NSEvent.pressedMouseButtons & 1 != 0
+        if isDown, !wasDown { pressed = NSEvent.mouseLocation; released = nil }
+        if !isDown, wasDown, pressed != nil { released = NSEvent.mouseLocation }
+        wasDown = isDown
     }
 
     /// The captured area in screen coordinates, or `nil` when the mouse was
-    /// not seen (a cancelled capture, or a keyboard-only one).
-    func selection() -> NSRect? {
+    /// not seen (a cancelled capture, or a keyboard-only one). `size`, the
+    /// captured image's size in points, makes the frame exact: the corner
+    /// where the drag began is kept and the rest follows the image.
+    func selection(imageSize size: NSSize? = nil) -> NSRect? {
         guard let pressed, let released else { return nil }
-        let rect = Self.rect(from: pressed, to: released)
-        if rect.width >= Self.clickTolerance || rect.height >= Self.clickTolerance { return rect }
-        return Self.window(at: released)
+        var rect = Self.rect(from: pressed, to: released)
+        guard rect.width >= Self.clickTolerance || rect.height >= Self.clickTolerance else {
+            return Self.window(at: released)
+        }
+        if let size, size.width > 0, size.height > 0 {
+            let x = released.x >= pressed.x ? pressed.x : pressed.x - size.width
+            let y = released.y >= pressed.y ? pressed.y : pressed.y - size.height
+            rect = NSRect(x: x, y: y, width: size.width, height: size.height)
+        }
+        return rect
     }
 
     static func rect(from a: NSPoint, to b: NSPoint) -> NSRect {

@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import ImageIO
 import Observation
 import OSLog
 import QuickShotCore
@@ -407,6 +408,17 @@ final class AppModel {
         return .captured(kept)
     }
 
+    /// An image's size in points (its pixels over its density), for the frame.
+    static func pointSize(of image: URL) -> NSSize? {
+        guard let reader = CGImageSourceCreateWithURL(image as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(reader, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Double,
+              let height = properties[kCGImagePropertyPixelHeight] as? Double else { return nil }
+        let dpi = properties[kCGImagePropertyDPIWidth] as? Double ?? 72
+        let scale = max(1, (dpi / 72).rounded())
+        return NSSize(width: width / scale, height: height / scale)
+    }
+
     /// Whether the newest capture went to the clipboard, for the notification.
     private(set) var lastCopied = false
 
@@ -416,7 +428,7 @@ final class AppModel {
             switch mode {
             case .fullScreen: flash(nil)
             case .area:
-                let area = selectionTracker.selection()
+                let area = selectionTracker.selection(imageSize: files.first.flatMap(Self.pointSize))
                 log.notice("flash area: \(area.map { NSStringFromRect($0) } ?? "unknown", privacy: .public)")
                 flash(area)
             case .recording: break

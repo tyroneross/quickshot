@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import Foundation
 import QuickShotCore
 import TestSupport
@@ -787,5 +788,33 @@ final class Notified {
 
     @Test func nothingSeenMeansNoArea() {
         #expect(SelectionTracker().selection() == nil)
+    }
+
+    @Test func anImageSizeMakesTheFrameExactFromTheDragsStartCorner() {
+        // Dragged down and to the left from (500, 400): the start corner is
+        // the top right, so the image hangs below and left of it.
+        let rect = SelectionTracker.rect(from: NSPoint(x: 500, y: 400), to: NSPoint(x: 300, y: 300))
+        #expect(rect == NSRect(x: 300, y: 300, width: 200, height: 100))
+    }
+
+    @Test func aRetinaImageIsMeasuredInPoints() throws {
+        let folder = try TempFolder()
+        let file = folder.url.appendingPathComponent("capture.png")
+        try ImageShrinkerTestsSupport.makePNG(at: file, width: 800, height: 600, dpi: 144)
+        #expect(AppModel.pointSize(of: file) == NSSize(width: 400, height: 300))
+        try ImageShrinkerTestsSupport.makePNG(at: file, width: 800, height: 600, dpi: 72)
+        #expect(AppModel.pointSize(of: file) == NSSize(width: 800, height: 600))
+    }
+}
+
+enum ImageShrinkerTestsSupport {
+    static func makePNG(at url: URL, width: Int, height: Int, dpi: Double) throws {
+        let context = try #require(CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let image = try #require(context.makeImage())
+        let writer = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(writer, image, [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi] as CFDictionary)
+        try #require(CGImageDestinationFinalize(writer))
     }
 }
