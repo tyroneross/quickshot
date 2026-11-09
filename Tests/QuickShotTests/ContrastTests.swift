@@ -39,7 +39,10 @@ import Testing
         let tints: [(String, NSColor)] = [
             ("accent tint", .controlAccentColor), ("orange tint", .systemOrange), ("red tint", .systemRed),
         ]
-        return [("window", window)] + tints.map { name, color in
+        let label = resolve(.labelColor, in: appearance)
+        // The capture buttons sit on the label colour at half the tint strength.
+        let tile = blend(label.rgb, alpha: label.alpha * Palette.tintOpacity / 2, over: window)
+        return [("window", window), ("capture button", tile)] + tints.map { name, color in
             (name, blend(resolve(color, in: appearance).rgb, alpha: Palette.tintOpacity, over: window))
         }
     }

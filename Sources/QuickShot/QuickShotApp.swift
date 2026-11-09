@@ -19,7 +19,7 @@ struct MenuBarLabel: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        Image(systemName: model.isCapturing ? "record.circle.fill" : "camera.viewfinder")
+        Image(systemName: model.isCapturing ? "record.circle.fill" : "camera")
             .accessibilityLabel(model.isCapturing ? "QuickShot, capturing" : "QuickShot")
     }
 }
@@ -108,23 +108,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// Builds the one library window.
+/// Builds the one library window. The window is as large as its content
+/// needs: small with no captures, taller as captures arrive, until the grid
+/// reaches its scroll limit.
 @MainActor
 enum LibraryWindow {
-    static let minimumContentSize = NSSize(width: 480, height: 360)
-    static let defaultContentSize = NSSize(width: 860, height: 560)
-
     static func make(model: AppModel) -> NSWindow {
         let hosting = NSHostingController(rootView: LibraryView().environment(model))
         hosting.sceneBridgingOptions = [.toolbars]
+        hosting.sizingOptions = [.preferredContentSize]
         let window = NSWindow(contentViewController: hosting)
         window.title = "QuickShot"
+        // The narrow title bar is given to the item actions; the name stays
+        // available to the window list and to assistive technology.
         window.titleVisibility = .hidden
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
-        window.contentMinSize = minimumContentSize
-        window.setContentSize(defaultContentSize)
+        window.contentMinSize = NSSize(width: Layout.windowWidth, height: Layout.captureBarHeight)
         window.center()
         window.setFrameAutosaveName("QuickShotLibrary")
         return window

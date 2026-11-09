@@ -14,6 +14,21 @@ enum Radius {
     static let card: CGFloat = 8
 }
 
+/// Sizes that shape the window. The window takes its size from the content,
+/// so these decide how small it can be and when the grid starts to scroll.
+enum Layout {
+    /// The narrowest and the default window width: two cards side by side.
+    static let windowWidth: CGFloat = 340
+    static let padding: CGFloat = 12
+    static let spacing: CGFloat = 10
+    /// The strip holding the two capture buttons. Fixed, so nothing below it
+    /// moves when the buttons change to the capturing status.
+    static let captureBarHeight: CGFloat = 88
+    static let cardMinWidth: CGFloat = 140
+    /// The grid grows with its content up to about two rows, then scrolls.
+    static let gridMaxIdealHeight: CGFloat = 330
+}
+
 /// The few colour strengths the interface uses, in one place so the contrast
 /// tests measure the same values the views draw.
 enum Palette {
@@ -33,108 +48,167 @@ struct LibraryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            CaptureBar()
             if model.isCapturing {
                 Banner(tone: .info, text: Copy.capturing)
             } else if let notice = model.notice {
                 NoticeBanner(notice: notice)
             }
             if model.items.isEmpty {
-                EmptyLibraryView()
+                EmptyHint()
             } else {
                 CaptureGrid()
             }
         }
-        .frame(minWidth: LibraryWindow.minimumContentSize.width, minHeight: LibraryWindow.minimumContentSize.height)
+        // The ideal size is what the content needs; the window follows it.
+        .frame(minWidth: Layout.windowWidth, idealWidth: Layout.windowWidth, maxWidth: .infinity,
+               maxHeight: .infinity, alignment: .top)
         .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
-                CaptureControls()
-            }
             if let item = model.selectedItem {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    ItemActions(item: item, shortcuts: true)
+                    ItemActions(item: item, inToolbar: true)
                 }
             }
         }
     }
 }
 
-/// Screenshot and Record, or the capturing status with its way out.
-struct CaptureControls: View {
+/// The two capture buttons, or the capturing status with its way out.
+struct CaptureBar: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        if model.isCapturing {
-            HStack(spacing: 6) {
-                Circle().fill(.red).frame(width: 8, height: 8).accessibilityHidden(true)
+        HStack(spacing: Layout.spacing) {
+            if model.isCapturing {
+                Circle().fill(.red).frame(width: 10, height: 10).accessibilityHidden(true)
                 Text("Capturing")
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("capture-status")
-            Button("Cancel Capture", systemImage: "xmark.circle") { model.cancelCapture() }
-                .labelStyle(.titleAndIcon)
-                .help("Close the system picker without saving")
-                .accessibilityIdentifier("cancel-capture")
-        } else {
-            Button("Screenshot", systemImage: "camera.viewfinder") { model.capture(.screenshot) }
-                .labelStyle(.titleAndIcon)
-                .help("Take a screenshot (\(Shortcut.screenshot.words))")
+                    .font(.headline)
+                    .accessibilityIdentifier("capture-status")
+                Spacer(minLength: Layout.spacing)
+                Button("Cancel Capture", systemImage: "xmark.circle") { model.cancelCapture() }
+                    .labelStyle(.titleAndIcon)
+                    .controlSize(.large)
+                    .help("Close the system picker without saving")
+                    .accessibilityIdentifier("cancel-capture")
+            } else {
+                CaptureTile(title: "Screenshot", symbol: "camera.fill", symbolColor: .primary,
+                            help: "Take a screenshot (\(Shortcut.screenshot.words))") {
+                    model.capture(.screenshot)
+                }
                 .accessibilityIdentifier("take-screenshot")
-            Button("Record", systemImage: "record.circle") { model.capture(.recording) }
-                .labelStyle(.titleAndIcon)
-                .help("Record the screen (\(Shortcut.recording.words))")
+                CaptureTile(title: "Record", symbol: "record.circle", symbolColor: .red,
+                            help: "Record the screen (\(Shortcut.recording.words))") {
+                    model.capture(.recording)
+                }
                 .accessibilityIdentifier("record-screen")
+            }
         }
+        .padding(Layout.padding)
+        .frame(height: Layout.captureBarHeight)
     }
 }
 
-/// The four things to do with one capture. Used by the toolbar and by the
-/// context menu so both always offer the same actions.
+/// One large capture button: a plain symbol above its name.
+struct CaptureTile: View {
+    let title: String
+    let symbol: String
+    let symbolColor: Color
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: symbol)
+                    .font(.system(size: 26))
+                    .foregroundStyle(symbolColor)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.body.weight(.medium))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .buttonStyle(TileButtonStyle())
+        .help(help)
+    }
+}
+
+struct TileButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(Color.primary.opacity(configuration.isPressed ? Palette.tintOpacity : Palette.tintOpacity / 2),
+                        in: RoundedRectangle(cornerRadius: Radius.card))
+            .overlay {
+                RoundedRectangle(cornerRadius: Radius.card).strokeBorder(Color.primary.opacity(0.15))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card))
+    }
+}
+
+/// The four things to do with one capture. In the title bar they are plain
+/// symbols with tooltips so the window can stay narrow; in the context menu
+/// the same actions carry their names.
 struct ItemActions: View {
     @Environment(AppModel.self) private var model
     let item: CaptureItem
-    var shortcuts = false
+    var inToolbar = false
 
     var body: some View {
         let copied = model.copiedItem == item.id
-        Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") { model.copy(item) }
-            .labelStyle(.titleAndIcon)
-            .keyboardShortcut(shortcuts ? KeyboardShortcut("c", modifiers: .command) : nil)
-            .help("Copy to the clipboard")
-            .accessibilityIdentifier("copy-capture")
-        Button(item.kind == .image ? "Annotate" : "Open",
-               systemImage: item.kind == .image ? "pencil.tip.crop.circle" : "play.rectangle") {
-            CaptureActions.open(item)
+        Group {
+            Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") { model.copy(item) }
+                .keyboardShortcut(inToolbar ? KeyboardShortcut("c", modifiers: .command) : nil)
+                .help("Copy to the clipboard")
+                .accessibilityIdentifier("copy-capture")
+            Button(item.kind == .image ? "Annotate" : "Open",
+                   systemImage: item.kind == .image ? "pencil.tip.crop.circle" : "play.rectangle") {
+                CaptureActions.open(item)
+            }
+            .keyboardShortcut(inToolbar ? KeyboardShortcut(.return, modifiers: .command) : nil)
+            .help(item.kind == .image ? "Annotate in Preview" : "Open in QuickTime Player")
+            .accessibilityIdentifier("open-capture")
+            Button("Show in Finder", systemImage: "folder") { CaptureActions.reveal(item) }
+                .help("Show in Finder")
+                .accessibilityIdentifier("reveal-capture")
+            Button("Move to Trash", systemImage: "trash") { model.trash(item) }
+                .keyboardShortcut(inToolbar ? KeyboardShortcut(.delete, modifiers: .command) : nil)
+                .help("Move to Trash")
+                .accessibilityIdentifier("trash-capture")
         }
-        .labelStyle(.titleAndIcon)
-        .keyboardShortcut(shortcuts ? KeyboardShortcut(.return, modifiers: .command) : nil)
-        .help(item.kind == .image ? "Open in Preview to annotate" : "Open in QuickTime Player")
-        .accessibilityIdentifier("open-capture")
-        Button("Show in Finder", systemImage: "folder") { CaptureActions.reveal(item) }
-            .labelStyle(.titleAndIcon)
-            .help("Show the file in Finder")
-            .accessibilityIdentifier("reveal-capture")
-        Button("Move to Trash", systemImage: "trash") { model.trash(item) }
-            .labelStyle(.titleAndIcon)
-            .keyboardShortcut(shortcuts ? KeyboardShortcut(.delete, modifiers: .command) : nil)
-            .help("Move to the Trash. Put it back from the Trash in Finder.")
-            .accessibilityIdentifier("trash-capture")
+        .labelStyle(ToolbarOrMenuLabelStyle(iconOnly: inToolbar))
+    }
+}
+
+/// Symbol only in the title bar, name and symbol in menus.
+struct ToolbarOrMenuLabelStyle: LabelStyle {
+    let iconOnly: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        if iconOnly {
+            configuration.icon
+        } else {
+            Label { configuration.title } icon: { configuration.icon }
+        }
     }
 }
 
 struct CaptureGrid: View {
     @Environment(AppModel.self) private var model
-    private let columns = [GridItem(.adaptive(minimum: 180, maximum: 260), spacing: 12)]
+    @State private var contentHeight: CGFloat = 0
+    private let columns = [GridItem(.adaptive(minimum: Layout.cardMinWidth), spacing: Layout.spacing)]
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 12) {
+            LazyVGrid(columns: columns, spacing: Layout.spacing) {
                 ForEach(model.items) { item in
                     CaptureCard(item: item, isSelected: model.selection == item.id)
                 }
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, minHeight: 0, alignment: .topLeading)
+            .padding([.horizontal, .bottom], Layout.padding)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         }
+        // Ask for exactly what the captures need, up to the scroll limit.
+        .frame(idealHeight: min(contentHeight, Layout.gridMaxIdealHeight), maxHeight: .infinity)
         .contentShape(Rectangle())
         .onTapGesture { model.selection = nil }
     }
@@ -169,11 +243,17 @@ struct CaptureCard: View {
                                 .padding(6)
                         }
                     }
-                Text("\(kindWord) · \(time)")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.supportingText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                HStack(spacing: 4) {
+                    if item.kind == .video {
+                        // Marks a recording without relying on the thumbnail.
+                        Image(systemName: "video.fill").accessibilityHidden(true)
+                    }
+                    Text(time)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .font(.subheadline)
+                .foregroundStyle(Color.supportingText)
             }
             .padding(8)
             .background(
@@ -194,7 +274,7 @@ struct CaptureCard: View {
         })
         .draggable(item.url)
         .contextMenu { ItemActions(item: item) }
-        .help(item.url.lastPathComponent)
+        .help("\(kindWord): \(item.url.lastPathComponent)")
         .accessibilityLabel("\(kindWord), \(time)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("capture-card")
@@ -202,35 +282,21 @@ struct CaptureCard: View {
 }
 
 /// Shown until the first capture exists: what is missing and how to start.
-struct EmptyLibraryView: View {
+/// The two capture buttons sit directly above, so this stays to two lines.
+struct EmptyHint: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("No captures yet")
-                .font(.title3.weight(.semibold))
-            if !model.isCapturing {
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                    GridRow {
-                        Button("Screenshot", systemImage: "camera.viewfinder") { model.capture(.screenshot) }
-                            .accessibilityIdentifier("empty-take-screenshot")
-                        Text("or press \(Shortcut.screenshot.words) in any app")
-                    }
-                    GridRow {
-                        Button("Record", systemImage: "record.circle") { model.capture(.recording) }
-                            .accessibilityIdentifier("empty-record-screen")
-                        Text("or press \(Shortcut.recording.words) in any app")
-                    }
-                }
-                .controlSize(.large)
-            }
+        VStack(alignment: .leading, spacing: 4) {
+            Text("No captures yet. In any app, press \(Shortcut.screenshot.words) for a screenshot or \(Shortcut.recording.words) to record.")
             Text("Captures are saved to \((model.library.directory.path as NSString).abbreviatingWithTildeInPath).")
                 .font(.subheadline)
                 .foregroundStyle(Color.supportingText)
-                .multilineTextAlignment(.center)
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding([.horizontal, .bottom], Layout.padding)
+        .accessibilityIdentifier("empty-hint")
     }
 }
 
@@ -282,16 +348,19 @@ struct Banner: View {
     var onDismiss: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Text(text)
-                .lineLimit(3)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel("\(tone.word). \(text)")
-            if let actionTitle, let action {
-                Button(actionTitle, action: action)
-                    .accessibilityIdentifier("notice-action")
+        HStack(alignment: .top, spacing: Layout.spacing) {
+            // The action sits under the message, in reading order, so the
+            // message keeps the full width instead of wrapping beside a button.
+            VStack(alignment: .leading, spacing: 8) {
+                Text(text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("\(tone.word). \(text)")
+                if let actionTitle, let action {
+                    Button(actionTitle, action: action)
+                        .accessibilityIdentifier("notice-action")
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             if let onDismiss {
                 Button("Dismiss", systemImage: "xmark", action: onDismiss)
                     .labelStyle(.iconOnly)
@@ -303,12 +372,14 @@ struct Banner: View {
             }
         }
         .padding(.vertical, 8)
-        .padding(.leading, 16)
-        .padding(.trailing, 12)
+        .padding(.leading, Layout.padding + 4)
+        .padding(.trailing, Layout.padding)
         .background(tone.color.opacity(Palette.tintOpacity))
         .overlay(alignment: .leading) {
             Rectangle().fill(tone.color).frame(width: 3)
         }
+        // Space before whatever follows the notice.
+        .padding(.bottom, Layout.padding)
         .accessibilityIdentifier("notice")
     }
 }

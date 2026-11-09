@@ -1,22 +1,24 @@
 # QuickShot
 
-A small macOS app for screenshots and screen recordings. It opens the system capture picker (the same toolbar as Command Shift 5), files every capture into one folder, and shows them in one window.
+A small macOS app for screenshots and screen recordings. It opens the system capture picker (the same toolbar as Command Shift 5), files every capture into one folder, and shows them in one small window: a camera button, a record button, and your recent captures. The window is only as large as its content needs.
 
 ## Use
 
 | To do this | Do this |
 |---|---|
-| Take a screenshot | Press Control Shift S in any app, or click **Screenshot** |
-| Record the screen | Press Control Shift R in any app, or click **Record**, then click Record in the system toolbar |
+| Take a screenshot | Press Control Shift S in any app, or click the camera button (**Screenshot**) |
+| Record the screen | Press Control Shift R in any app, or click the red record button (**Record**), then click Record in the system toolbar |
 | End a recording | Click the system Stop button in the menu bar |
 | Cancel the picker | Press Escape, or choose **Cancel Capture** |
-| Copy a capture | Select it, then Command C |
+| Copy a capture | Select it, then Command C (or the copy symbol in the title bar) |
 | Annotate a screenshot | Select it, then Command Return (opens Preview; use Markup) |
 | Trim a recording | Select it, then Command Return (opens QuickTime Player) |
-| Find the file | **Show in Finder**, or drag the card into another app |
+| Find the file | Select it, then the folder symbol in the title bar; or drag the card into another app |
 | Remove a capture | Command Delete (moves it to the Trash) |
 
 Captures are saved to `~/Pictures/QuickShot`. That folder is the only record: files you add, rename or delete there in Finder show up in the window as they are.
+
+Selecting a capture shows four symbols in the title bar: copy, annotate (or open, for a recording), show in Finder, and move to Trash. Hover for the name; right-click a capture for the same actions with names.
 
 The menu bar item offers the same capture actions when the window is closed.
 
