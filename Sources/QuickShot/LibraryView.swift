@@ -1,0 +1,308 @@
+import QuickShotCore
+import SwiftUI
+
+/// Interface wording shared by the window, the menu and the tooltips.
+enum Copy {
+    static let screenshotShortcut = "Control Shift S"
+    static let recordShortcut = "Control Shift R"
+    static let capturing = "Capture in progress. Finish in the system toolbar, or press Escape to cancel. To end a recording, use the Stop button in the menu bar."
+    static let permission = "QuickShot needs Screen Recording permission before it can capture. Turn it on in System Settings, then quit and reopen QuickShot."
+    static let nothingSaved = "Nothing was saved. The capture was cancelled, copied to the clipboard, or saved to another location from the toolbar."
+}
+
+extension Color {
+    /// Supporting text. System secondary text falls below 4.5:1 on a window
+    /// background, so metadata uses the primary colour at reduced strength.
+    static let supportingText = Color.primary.opacity(0.72)
+}
+
+struct LibraryView: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if model.isCapturing {
+                Banner(tone: .info, text: Copy.capturing)
+            } else if let notice = model.notice {
+                NoticeBanner(notice: notice)
+            }
+            if model.items.isEmpty {
+                EmptyLibraryView()
+            } else {
+                CaptureGrid()
+            }
+        }
+        .frame(minWidth: 480, minHeight: 360)
+        .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                CaptureControls()
+            }
+            if let item = model.selectedItem {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    ItemActions(item: item, shortcuts: true)
+                }
+            }
+        }
+    }
+}
+
+/// Screenshot and Record, or the capturing status with its way out.
+struct CaptureControls: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        if model.isCapturing {
+            HStack(spacing: 6) {
+                Circle().fill(.red).frame(width: 8, height: 8)
+                Text("Capturing")
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("capture-status")
+            Button("Cancel Capture", systemImage: "xmark.circle") { model.cancelCapture() }
+                .labelStyle(.titleAndIcon)
+                .help("Close the system picker without saving")
+                .accessibilityIdentifier("cancel-capture")
+        } else {
+            Button("Screenshot", systemImage: "camera.viewfinder") { model.capture(.screenshot) }
+                .labelStyle(.titleAndIcon)
+                .help("Take a screenshot (\(Copy.screenshotShortcut))")
+                .accessibilityIdentifier("take-screenshot")
+            Button("Record", systemImage: "record.circle") { model.capture(.recording) }
+                .labelStyle(.titleAndIcon)
+                .help("Record the screen (\(Copy.recordShortcut))")
+                .accessibilityIdentifier("record-screen")
+        }
+    }
+}
+
+/// The four things to do with one capture. Used by the toolbar and by the
+/// context menu so both always offer the same actions.
+struct ItemActions: View {
+    @Environment(AppModel.self) private var model
+    let item: CaptureItem
+    var shortcuts = false
+
+    var body: some View {
+        let copied = model.copiedItem == item.id
+        Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") { model.copy(item) }
+            .labelStyle(.titleAndIcon)
+            .keyboardShortcut(shortcuts ? KeyboardShortcut("c", modifiers: .command) : nil)
+            .help("Copy to the clipboard")
+            .accessibilityIdentifier("copy-capture")
+        Button(item.kind == .image ? "Annotate" : "Open",
+               systemImage: item.kind == .image ? "pencil.tip.crop.circle" : "play.rectangle") {
+            CaptureActions.open(item)
+        }
+        .labelStyle(.titleAndIcon)
+        .keyboardShortcut(shortcuts ? KeyboardShortcut(.return, modifiers: .command) : nil)
+        .help(item.kind == .image ? "Open in Preview to annotate" : "Open in QuickTime Player")
+        .accessibilityIdentifier("open-capture")
+        Button("Show in Finder", systemImage: "folder") { CaptureActions.reveal(item) }
+            .labelStyle(.titleAndIcon)
+            .help("Show the file in Finder")
+            .accessibilityIdentifier("reveal-capture")
+        Button("Move to Trash", systemImage: "trash") { model.trash(item) }
+            .labelStyle(.titleAndIcon)
+            .keyboardShortcut(shortcuts ? KeyboardShortcut(.delete, modifiers: .command) : nil)
+            .help("Move to the Trash. Put it back from the Trash in Finder.")
+            .accessibilityIdentifier("trash-capture")
+    }
+}
+
+struct CaptureGrid: View {
+    @Environment(AppModel.self) private var model
+    private let columns = [GridItem(.adaptive(minimum: 180, maximum: 260), spacing: 12)]
+
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(model.items) { item in
+                    CaptureCard(item: item, isSelected: model.selection == item.id)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 0, alignment: .topLeading)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { model.selection = nil }
+    }
+}
+
+struct CaptureCard: View {
+    @Environment(AppModel.self) private var model
+    let item: CaptureItem
+    let isSelected: Bool
+
+    private var kindWord: String { item.kind == .image ? "Screenshot" : "Recording" }
+    private var time: String {
+        item.created.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+    }
+
+    var body: some View {
+        Button {
+            model.selection = item.id
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                ThumbnailView(item: item)
+                    .aspectRatio(4 / 3, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay {
+                        if item.kind == .video {
+                            Image(systemName: "play.circle.fill")
+                                .font(.largeTitle)
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .black.opacity(0.55))
+                        }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        if isSelected {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.title3)
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, Color.accentColor)
+                                .padding(6)
+                        }
+                    }
+                Text("\(kindWord) · \(time)")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.supportingText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .padding(8)
+            .background(
+                isSelected ? Color.accentColor.opacity(0.12) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.15),
+                                  lineWidth: isSelected ? 2 : 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
+            model.selection = item.id
+            CaptureActions.open(item)
+        })
+        .draggable(item.url)
+        .contextMenu { ItemActions(item: item) }
+        .help(item.url.lastPathComponent)
+        .accessibilityLabel("\(kindWord), \(time)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("capture-card")
+    }
+}
+
+/// Shown until the first capture exists: what is missing and how to start.
+struct EmptyLibraryView: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("No captures yet")
+                .font(.title3.weight(.semibold))
+            if !model.isCapturing {
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                    GridRow {
+                        Button("Screenshot", systemImage: "camera.viewfinder") { model.capture(.screenshot) }
+                            .accessibilityIdentifier("empty-take-screenshot")
+                        Text("or press \(Copy.screenshotShortcut) in any app")
+                    }
+                    GridRow {
+                        Button("Record", systemImage: "record.circle") { model.capture(.recording) }
+                            .accessibilityIdentifier("empty-record-screen")
+                        Text("or press \(Copy.recordShortcut) in any app")
+                    }
+                }
+                .controlSize(.large)
+            }
+            Text("Captures are saved to \(model.library.directory.path(percentEncoded: false)).")
+                .font(.subheadline)
+                .foregroundStyle(Color.supportingText)
+                .multilineTextAlignment(.center)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct NoticeBanner: View {
+    @Environment(AppModel.self) private var model
+    let notice: AppModel.Notice
+
+    var body: some View {
+        switch notice {
+        case .permissionNeeded:
+            Banner(tone: .warning, text: Copy.permission,
+                   actionTitle: "Open Settings", action: CaptureActions.openScreenRecordingSettings,
+                   onDismiss: { model.notice = nil })
+        case .nothingSaved:
+            Banner(tone: .info, text: Copy.nothingSaved, onDismiss: { model.notice = nil })
+        case .failed(let message):
+            Banner(tone: .error, text: "Capture failed. \(message)", onDismiss: { model.notice = nil })
+        }
+    }
+}
+
+/// A tinted strip with a coloured leading edge. The tone is carried by the
+/// edge and the wording, never by colour alone.
+struct Banner: View {
+    enum Tone {
+        case info, warning, error
+
+        var color: Color {
+            switch self {
+            case .info: .accentColor
+            case .warning: .orange
+            case .error: .red
+            }
+        }
+
+        var word: String {
+            switch self {
+            case .info: "Note"
+            case .warning: "Action needed"
+            case .error: "Error"
+            }
+        }
+    }
+
+    let tone: Tone
+    let text: String
+    var actionTitle: String?
+    var action: (() -> Void)?
+    var onDismiss: (() -> Void)?
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(text)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("\(tone.word). \(text)")
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .accessibilityIdentifier("notice-action")
+            }
+            if let onDismiss {
+                Button("Dismiss", systemImage: "xmark", action: onDismiss)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .frame(minWidth: 24, minHeight: 24)
+                    .contentShape(Rectangle())
+                    .help("Dismiss")
+                    .accessibilityIdentifier("notice-dismiss")
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(.leading, 16)
+        .padding(.trailing, 12)
+        .background(tone.color.opacity(0.12))
+        .overlay(alignment: .leading) {
+            Rectangle().fill(tone.color).frame(width: 3)
+        }
+        .accessibilityIdentifier("notice")
+    }
+}
