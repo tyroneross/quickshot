@@ -86,6 +86,28 @@ public enum CaptureFiler {
         return destination
     }
 
+    /// Files everything one capture produced and clears its scratch folder.
+    /// A file that cannot be filed is reported and does not stop the others.
+    public static func fileAll(
+        _ sources: [URL],
+        into directory: URL,
+        date: Date = Date()
+    ) -> (filed: [URL], problems: [String]) {
+        var filed: [URL] = []
+        var problems: [String] = []
+        for source in sources {
+            do {
+                filed.append(try file(source, into: directory, date: date))
+            } catch {
+                problems.append(error.localizedDescription)
+            }
+        }
+        for scratch in Set(sources.map { $0.deletingLastPathComponent() }) {
+            try? FileManager.default.removeItem(at: scratch)
+        }
+        return (filed, problems)
+    }
+
     static func prefix(for kind: CaptureKind) -> String {
         switch kind {
         case .image: "Screenshot"

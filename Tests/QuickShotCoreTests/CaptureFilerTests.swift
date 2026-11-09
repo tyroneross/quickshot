@@ -73,6 +73,24 @@ import Testing
         #expect(try FileManager.default.contentsOfDirectory(atPath: library.url.path).isEmpty)
     }
 
+    @Test func fileAllFilesWhatItCanReportsTheRestAndClearsScratch() throws {
+        let parent = try TempFolder(), library = try TempFolder()
+        let scratch = parent.url.appendingPathComponent("QuickShot-scratch", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let good = scratch.appendingPathComponent("capture.png")
+        let bad = scratch.appendingPathComponent("capture-2.png")
+        try Data(Fixture.png).write(to: good)
+        try Data(Fixture.text).write(to: bad)
+
+        let outcome = CaptureFiler.fileAll([good, bad], into: library.url, date: date)
+
+        #expect(outcome.filed.count == 1)
+        #expect(outcome.filed.first?.pathExtension == "png")
+        #expect(outcome.problems.count == 1)
+        #expect(outcome.problems.first?.contains("capture-2.png") == true)
+        #expect(!FileManager.default.fileExists(atPath: scratch.path))
+    }
+
     @Test func createsTheCapturesFolderWhenItIsMissing() throws {
         let scratch = try TempFolder(), parent = try TempFolder()
         let source = try scratch.write(Fixture.png, named: "capture.png")

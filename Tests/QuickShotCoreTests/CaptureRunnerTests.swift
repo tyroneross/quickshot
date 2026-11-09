@@ -74,11 +74,11 @@ import Testing
         #expect(!runner.isRunning)
     }
 
-    @Test func stopInterruptsTheToolAndKeepsWhatItWrote() async throws {
+    @Test func cancelTerminatesTheToolAndKeepsWhatItWrote() async throws {
         let folder = try TempFolder()
-        // Mimics a recording: runs until interrupted, then writes the movie.
+        // Runs until terminated, then writes a movie on the way out.
         let tool = try folder.script("""
-        trap 'printf "\\000\\000\\000\\024ftypqt  0000" > "$OUT"; exit 0' INT
+        trap 'printf "\\000\\000\\000\\024ftypqt  0000" > "$OUT"; exit 0' TERM
         : > '\(folder.url.path)/started'
         while :; do sleep 0.05; done
         """)
@@ -87,10 +87,10 @@ import Testing
         async let pending = runner.run(.recording)
         try await waitForFile(folder.url.appendingPathComponent("started"))
         #expect(runner.isRunning)
-        runner.stop()
+        runner.cancel()
 
         guard case .captured(let files)? = await pending else {
-            Issue.record("expected the interrupted recording to be kept")
+            Issue.record("expected the file written before exit to be kept")
             return
         }
         #expect(CaptureFormat.detect(files[0])?.kind == .video)
@@ -99,7 +99,6 @@ import Testing
     @Test func aSecondRequestWhileOneRunsIsRefused() async throws {
         let folder = try TempFolder()
         let tool = try folder.script("""
-        trap 'exit 0' INT
         : > '\(folder.url.path)/started'
         while :; do sleep 0.05; done
         """)
@@ -108,8 +107,25 @@ import Testing
         async let first = runner.run(.screenshot)
         try await waitForFile(folder.url.appendingPathComponent("started"))
         #expect(await runner.run(.screenshot) == nil)
-        runner.stop()
+        runner.cancel()
         #expect(await first == .cancelled)
+    }
+
+    /// The system picker ignores an interrupt, so cancel must not rely on one.
+    @Test func cancelClosesAToolThatIgnoresInterrupts() async throws {
+        let folder = try TempFolder()
+        let tool = try folder.script("""
+        trap '' INT
+        : > '\(folder.url.path)/started'
+        while :; do sleep 0.05; done
+        """)
+        let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
+
+        async let pending = runner.run(.screenshot)
+        try await waitForFile(folder.url.appendingPathComponent("started"))
+        runner.cancel()
+        #expect(await pending == .cancelled)
+        #expect(!runner.isRunning)
     }
 
     private func scratchFolders(in folder: TempFolder) throws -> [String] {

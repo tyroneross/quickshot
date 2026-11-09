@@ -88,10 +88,11 @@ public final class CaptureRunner: @unchecked Sendable {
         return message.isEmpty ? .cancelled : .failed(message)
     }
 
-    /// Asks the running tool to finish. During a recording this ends it and
-    /// the tool writes the movie; while the picker is open it cancels.
-    public func stop() {
-        lock.withLock { current }?.interrupt()
+    /// Closes the picker by terminating the tool. The system picker ignores an
+    /// interrupt while it is open (measured on macOS 27.0.1), so this sends a
+    /// terminate signal. Anything the tool already wrote is still reported.
+    public func cancel() {
+        lock.withLock { current }?.terminate()
     }
 
     static func files(in directory: URL) -> [URL] {
