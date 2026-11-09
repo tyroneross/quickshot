@@ -31,7 +31,7 @@ import TestSupport
         _ = await runner.run(.recording)
 
         let arguments = try String(contentsOf: log, encoding: .utf8)
-        #expect(arguments.hasPrefix("-i -U -J video "))
+        #expect(arguments.hasPrefix("-v "))
         #expect(arguments.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("/capture.mov"))
     }
 
@@ -188,6 +188,31 @@ import TestSupport
 
         #expect(await runner.run(.screenshot) == .cancelled)
         #expect(try leftovers(in: folder).isEmpty)
+    }
+
+    /// Stop Recording: the tool is interrupted, finishes the movie and exits.
+    @Test func finishingARecordingKeepsTheMovieTheToolWrites() async throws {
+        let folder = try TempFolder()
+        let tool = try folder.script("""
+        trap 'printf "\\000\\000\\000\\024ftypqt  0000" > "$OUT"; exit 0' INT
+        : > '\(folder.url.path)/started'
+        while :; do sleep 0.05; done
+        """)
+        let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
+
+        async let pending = runner.run(.recording)
+        try await waitForFile(folder.url.appendingPathComponent("started"))
+        runner.finishRecording()
+
+        guard case .captured(let files)? = await pending else {
+            Issue.record("expected the finished recording to be kept")
+            return
+        }
+        #expect(CaptureFormat.detect(files[0]) == CaptureFormat(kind: .video, fileExtension: "mov"))
+    }
+
+    @Test func finishingWithNothingRunningDoesNothing() {
+        CaptureRunner(executable: URL(fileURLWithPath: "/usr/bin/true")).finishRecording()
     }
 
     @Test func cancelWithNothingRunningDoesNothing() async throws {

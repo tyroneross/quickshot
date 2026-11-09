@@ -119,6 +119,14 @@ public final class CaptureRunner: @unchecked Sendable {
         return message.isEmpty ? .cancelled : .failed(message)
     }
 
+    /// Ends a recording. The tool finishes the movie and exits (measured on
+    /// macOS 27.0.1: a recording interrupted after 3 s was a valid 2.9 s
+    /// movie). The screenshot picker ignores this signal; use `cancel()`.
+    public func finishRecording() {
+        let running = lock.withLock { launched ? current : nil }
+        running?.interrupt()
+    }
+
     /// Closes the picker by terminating the tool. The system picker ignores an
     /// interrupt while it is open (measured on macOS 27.0.1), so this sends a
     /// terminate signal. Anything the tool already wrote is still reported.

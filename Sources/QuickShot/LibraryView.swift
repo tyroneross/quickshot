@@ -3,9 +3,10 @@ import SwiftUI
 
 /// Interface wording shared by the window, the menu and the tooltips.
 enum Copy {
-    static let capturing = "Capture in progress. Finish in the system toolbar, or press Escape to cancel. To end a recording, use the Stop button in the menu bar."
+    static let choosing = "Drag to choose an area, or press Space to pick a window. Escape cancels."
+    static let recording = "Recording the screen. Stop it here, from the QuickShot menu bar item, or by pressing \(Shortcut.recording.words)."
     static let permission = "QuickShot needs Screen Recording permission before it can capture. Turn it on in System Settings, then quit and reopen QuickShot."
-    static let nothingSaved = "Nothing was saved. The capture was cancelled, copied to the clipboard, or saved to another location from the toolbar."
+    static let nothingSaved = "Nothing was saved. The capture was cancelled, or sent to the clipboard by holding Control."
 }
 
 /// Corner radii, one family.
@@ -49,8 +50,8 @@ struct LibraryView: View {
     var body: some View {
         VStack(spacing: 0) {
             CaptureBar()
-            if model.isCapturing {
-                Banner(tone: .info, text: Copy.capturing)
+            if let active = model.activeCapture {
+                Banner(tone: .info, text: active == .recording ? Copy.recording : Copy.choosing)
             } else if let notice = model.notice {
                 NoticeBanner(notice: notice)
             }
@@ -79,18 +80,29 @@ struct CaptureBar: View {
 
     var body: some View {
         HStack(spacing: Layout.spacing) {
-            if model.isCapturing {
+            switch model.activeCapture {
+            case .recording:
                 Circle().fill(.red).frame(width: 10, height: 10).accessibilityHidden(true)
-                Text("Capturing")
+                Text("Recording")
                     .font(.headline)
                     .accessibilityIdentifier("capture-status")
                 Spacer(minLength: Layout.spacing)
-                Button("Cancel Capture", systemImage: "xmark.circle") { model.cancelCapture() }
+                Button("Stop Recording", systemImage: "stop.circle.fill") { model.stopRecording() }
                     .labelStyle(.titleAndIcon)
                     .controlSize(.large)
-                    .help("Close the system picker without saving")
+                    .help("Stop and save the recording (\(Shortcut.recording.words))")
+                    .accessibilityIdentifier("stop-recording")
+            case .screenshot:
+                Text("Choosing an area")
+                    .font(.headline)
+                    .accessibilityIdentifier("capture-status")
+                Spacer(minLength: Layout.spacing)
+                Button("Cancel", systemImage: "xmark.circle") { model.cancelCapture() }
+                    .labelStyle(.titleAndIcon)
+                    .controlSize(.large)
+                    .help("Close the screenshot picker without saving")
                     .accessibilityIdentifier("cancel-capture")
-            } else {
+            case nil:
                 CaptureTile(title: "Screenshot", symbol: "camera.fill", symbolColor: .primary,
                             help: "Take a screenshot (\(Shortcut.screenshot.words))") {
                     model.capture(.screenshot)

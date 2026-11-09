@@ -19,8 +19,8 @@ struct MenuBarLabel: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        Image(systemName: model.isCapturing ? "record.circle.fill" : "camera")
-            .accessibilityLabel(model.isCapturing ? "QuickShot, capturing" : "QuickShot")
+        Image(systemName: model.activeCapture == .recording ? "record.circle.fill" : "camera")
+            .accessibilityLabel(model.activeCapture == .recording ? "QuickShot, recording" : "QuickShot")
     }
 }
 
@@ -28,9 +28,13 @@ struct MenuContent: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        if model.isCapturing {
-            Button("Cancel Capture") { model.cancelCapture() }
-        } else {
+        switch model.activeCapture {
+        case .recording:
+            Button("Stop Recording") { model.stopRecording() }
+                .keyboardShortcut(Shortcut.recording.keyboardShortcut)
+        case .screenshot:
+            Button("Cancel Screenshot") { model.cancelCapture() }
+        case nil:
             Button("Take Screenshot") { model.capture(.screenshot) }
                 .keyboardShortcut(Shortcut.screenshot.keyboardShortcut)
             Button("Record Screen") { model.capture(.recording) }
@@ -74,25 +78,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard model.isCapturing else { return .terminateNow }
+        guard let active = model.activeCapture else { return .terminateNow }
         let alert = NSAlert()
-        alert.messageText = "A capture is in progress"
-        alert.informativeText = "Quitting now closes the system picker. An unfinished capture is not saved to QuickShot."
-        alert.addButton(withTitle: "Keep Capturing")
-        alert.addButton(withTitle: "Quit Anyway")
+        switch active {
+        case .recording:
+            alert.messageText = "A recording is in progress"
+            alert.informativeText = "Quitting stops the recording and saves it to QuickShot."
+            alert.addButton(withTitle: "Keep Recording")
+            alert.addButton(withTitle: "Stop, Save and Quit")
+        case .screenshot:
+            alert.messageText = "A screenshot is in progress"
+            alert.informativeText = "Quitting closes the screenshot picker without saving."
+            alert.addButton(withTitle: "Keep Going")
+            alert.addButton(withTitle: "Quit Anyway")
+        }
         guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
-        // Wait for the tool to exit so anything it wrote on the way out is
-        // filed instead of being left in scratch space.
-        model.cancelCapture()
+        // Wait for the tool to exit so its result is filed before the app goes.
+        switch active {
+        case .recording: model.stopRecording()
+        case .screenshot: model.cancelCapture()
+        }
         model.whenIdle { sender.reply(toApplicationShouldTerminate: true) }
         return .terminateLater
     }
 
     private func registerHotKeys() {
-        let bindings: [(Shortcut, CaptureMode)] = [(.screenshot, .screenshot), (.recording, .recording)]
-        let unavailable = bindings.compactMap { shortcut, mode -> String? in
+        // The record shortcut starts a recording and, pressed again, stops it.
+        let bindings: [(Shortcut, @MainActor (AppModel) -> Void)] = [
+            (.screenshot, { $0.capture(.screenshot) }),
+            (.recording, { $0.toggleRecording() }),
+        ]
+        let unavailable = bindings.compactMap { shortcut, action -> String? in
             let registered = hotKeys.register(keyCode: shortcut.keyCode, modifiers: shortcut.carbonModifiers) { [weak self] in
-                self?.model.capture(mode)
+                if let model = self?.model { action(model) }
             }
             return registered ? nil : shortcut.words
         }

@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Observation
+import OSLog
 import QuickShotCore
 
 /// Whether macOS lets this app capture the screen. Injectable so the model
@@ -28,7 +29,9 @@ final class AppModel {
     }
 
     private(set) var items: [CaptureItem] = []
-    private(set) var isCapturing = false
+    /// The capture in progress, if any.
+    private(set) var activeCapture: CaptureMode?
+    var isCapturing: Bool { activeCapture != nil }
     var notice: Notice?
     var selection: CaptureItem.ID?
 
@@ -41,6 +44,11 @@ final class AppModel {
     @ObservationIgnored private var copiedReset: Task<Void, Never>?
     @ObservationIgnored private var idleWaiters: [() -> Void] = []
     @ObservationIgnored private var captureTask: Task<Void, Never>?
+    /// One line per capture in the system log, so a capture that goes wrong
+    /// can be diagnosed afterwards:
+    /// `log show --last 10m --predicate 'subsystem == "ai.rosslabs.quickshot"'`
+    @ObservationIgnored private let log = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "ai.rosslabs.quickshot", category: "capture")
 
     /// Window control, set by the app delegate.
     @ObservationIgnored var showLibrary: () -> Void = {}
@@ -124,13 +132,15 @@ final class AppModel {
             return
         }
         notice = nil
-        isCapturing = true
+        activeCapture = mode
         // Keep QuickShot's own window out of the picture.
         libraryWasVisible = isLibraryVisible()
         hideLibrary()
+        log.notice("capture start: \(mode.rawValue, privacy: .public)")
         captureTask = Task {
             let result = await runner.run(mode)
-            isCapturing = false
+            activeCapture = nil
+            log.notice("capture end: \(mode.rawValue, privacy: .public) -> \(String(describing: result), privacy: .public)")
             handle(result)
             let waiters = idleWaiters
             idleWaiters = []
@@ -142,6 +152,21 @@ final class AppModel {
     /// every moment of a capture, including before the tool has started.
     func cancelCapture() {
         captureTask?.cancel()
+    }
+
+    /// Ends the recording in progress and keeps it.
+    func stopRecording() {
+        guard activeCapture == .recording else { return }
+        runner.finishRecording()
+    }
+
+    /// Starts a recording, or stops the one in progress.
+    func toggleRecording() {
+        if activeCapture == .recording {
+            stopRecording()
+        } else {
+            capture(.recording)
+        }
     }
 
     /// Runs `action` once no capture is running: now if idle, otherwise right

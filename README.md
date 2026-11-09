@@ -1,15 +1,15 @@
 # QuickShot
 
-A small macOS app for screenshots and screen recordings. It opens the system capture picker (the same toolbar as Command Shift 5), files every capture into one folder, and shows them in one small window: a camera button, a record button, and your recent captures. The window is only as large as its content needs.
+A small macOS app for screenshots and screen recordings. Screenshots use the system crosshair picker (the same one as Command Shift 4); recordings start and stop from QuickShot. Every capture is filed into one folder and shown in one small window: a camera button, a record button, and your recent captures. The window is only as large as its content needs.
 
 ## Use
 
 | To do this | Do this |
 |---|---|
-| Take a screenshot | Press Control Shift S in any app, or click the camera button (**Screenshot**) |
-| Record the screen | Press Control Shift R in any app, or click the red record button (**Record**), then click Record in the system toolbar |
-| End a recording | Click the system Stop button in the menu bar |
-| Cancel the picker | Press Escape, or choose **Cancel Capture** |
+| Take a screenshot | Press Control Shift S in any app, or click the camera button (**Screenshot**). Drag an area, or press Space to pick a window |
+| Record the screen | Press Control Shift R in any app, or click the red record button (**Record**). Recording of the main display starts at once and the QuickShot window hides |
+| Stop a recording | Press Control Shift R again, choose **Stop Recording** from the QuickShot menu bar item (it turns into a filled record dot), or click the Dock icon and then **Stop Recording** |
+| Cancel a screenshot | Press Escape |
 | Copy a capture | Select it, then Command C (or the copy symbol in the title bar) |
 | Annotate a screenshot | Select it, then Command Return (opens Preview; use Markup) |
 | Trim a recording | Select it, then Command Return (opens QuickTime Player) |
@@ -52,9 +52,11 @@ Recent macOS versions also ask from time to time whether an app may keep recordi
 
 ## How it works
 
-- `Sources/QuickShotCore` has no interface code. `CaptureRunner` runs `/usr/sbin/screencapture -i -U -J selection|video` as a child process. `CaptureFiler` reads the first bytes of the result to tell a still from a movie, because the system toolbar lets you switch after it opens. `CaptureLibrary` lists the folder.
+- `Sources/QuickShotCore` has no interface code. `CaptureRunner` runs `/usr/sbin/screencapture` as a child process: `-i <file>` for a screenshot and `-v <file>` for a recording, which it ends by interrupting the tool. `CaptureFiler` reads the first bytes of the result to name it by what it is. `CaptureLibrary` lists the folder.
+- The tool's `-U` toolbar is deliberately not used: with it, macOS saves to its own "Save to" location (the Desktop by default) and ignores the file path, so captures never reach the folder.
+- Each capture writes one line to the system log. To see the last ten minutes: `log show --last 10m --predicate 'subsystem == "ai.rosslabs.quickshot"'`
 - `Sources/QuickShot` is the app: one window, a menu bar item, and two system-wide shortcuts registered through Carbon hot keys, which need no extra permission.
 
 ## Not included
 
-A built-in annotation editor, scrolling capture, cloud sharing, configurable shortcuts, launch at login, and a custom app icon.
+A built-in annotation editor, recording a chosen area or with sound, scrolling capture, cloud sharing, configurable shortcuts, launch at login, and a custom app icon.

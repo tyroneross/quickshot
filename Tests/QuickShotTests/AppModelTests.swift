@@ -114,6 +114,55 @@ import Testing
         #expect(harness.model.notice == .nothingSaved)
     }
 
+    @Test func stoppingARecordingFilesTheMovieAndSelectsIt() async throws {
+        let harness = try Harness(tool: Tool.recordsUntilInterrupted)
+        harness.model.start()
+
+        harness.model.capture(.recording)
+        try await harness.waitUntil { harness.toolRan }
+        #expect(harness.model.activeCapture == .recording)
+        #expect(!harness.windowVisible, "the window must stay out of the recording")
+
+        harness.model.stopRecording()
+        try await harness.waitUntilIdle()
+
+        let item = try #require(harness.model.items.first)
+        #expect(item.kind == .video)
+        #expect(item.url.lastPathComponent.hasPrefix("Recording "))
+        #expect(harness.model.selection == item.id)
+        #expect(harness.model.notice == nil)
+        #expect(harness.windowVisible)
+    }
+
+    /// The record shortcut is one key for both: start, then stop.
+    @Test func toggleRecordingStartsThenStops() async throws {
+        let harness = try Harness(tool: Tool.recordsUntilInterrupted)
+        harness.model.start()
+
+        harness.model.toggleRecording()
+        try await harness.waitUntil { harness.toolRan }
+        #expect(harness.model.activeCapture == .recording)
+
+        harness.model.toggleRecording()
+        try await harness.waitUntilIdle()
+        #expect(harness.model.items.map(\.kind) == [.video])
+    }
+
+    @Test func stopRecordingDoesNothingWhileAScreenshotIsBeingChosen() async throws {
+        let harness = try Harness(tool: Tool.recordsUntilInterrupted)
+        harness.model.start()
+        harness.model.capture(.screenshot)
+        try await harness.waitUntil { harness.toolRan }
+
+        harness.model.stopRecording()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(harness.model.activeCapture == .screenshot, "the screenshot picker must not be interrupted by Stop Recording")
+
+        harness.model.cancelCapture()
+        try await harness.waitUntilIdle()
+        #expect(harness.model.items.isEmpty)
+    }
+
     /// Quitting waits on this: the result of the cancelled capture is filed
     /// before the waiting action runs.
     @Test func whenIdleRunsAfterTheCancelledCaptureHasBeenFiled() async throws {
