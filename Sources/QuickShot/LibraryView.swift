@@ -3,11 +3,15 @@ import SwiftUI
 
 /// Interface wording shared by the window, the menu and the tooltips.
 enum Copy {
-    static let screenshotShortcut = "Control Shift S"
-    static let recordShortcut = "Control Shift R"
     static let capturing = "Capture in progress. Finish in the system toolbar, or press Escape to cancel. To end a recording, use the Stop button in the menu bar."
     static let permission = "QuickShot needs Screen Recording permission before it can capture. Turn it on in System Settings, then quit and reopen QuickShot."
     static let nothingSaved = "Nothing was saved. The capture was cancelled, copied to the clipboard, or saved to another location from the toolbar."
+}
+
+/// Corner radii, one family.
+enum Radius {
+    static let thumbnail: CGFloat = 6
+    static let card: CGFloat = 8
 }
 
 /// The few colour strengths the interface uses, in one place so the contrast
@@ -61,7 +65,7 @@ struct CaptureControls: View {
     var body: some View {
         if model.isCapturing {
             HStack(spacing: 6) {
-                Circle().fill(.red).frame(width: 8, height: 8)
+                Circle().fill(.red).frame(width: 8, height: 8).accessibilityHidden(true)
                 Text("Capturing")
             }
             .accessibilityElement(children: .combine)
@@ -73,11 +77,11 @@ struct CaptureControls: View {
         } else {
             Button("Screenshot", systemImage: "camera.viewfinder") { model.capture(.screenshot) }
                 .labelStyle(.titleAndIcon)
-                .help("Take a screenshot (\(Copy.screenshotShortcut))")
+                .help("Take a screenshot (\(Shortcut.screenshot.words))")
                 .accessibilityIdentifier("take-screenshot")
             Button("Record", systemImage: "record.circle") { model.capture(.recording) }
                 .labelStyle(.titleAndIcon)
-                .help("Record the screen (\(Copy.recordShortcut))")
+                .help("Record the screen (\(Shortcut.recording.words))")
                 .accessibilityIdentifier("record-screen")
         }
     }
@@ -153,10 +157,12 @@ struct CaptureCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 ThumbnailView(item: item)
                     .aspectRatio(4 / 3, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.thumbnail))
                     .overlay(alignment: .topTrailing) {
                         if isSelected {
+                            // Decorative: the card's selected trait says the same.
                             Image(systemName: "checkmark.circle.fill")
+                                .accessibilityHidden(true)
                                 .font(.title3)
                                 .symbolRenderingMode(.palette)
                                 .foregroundStyle(.white, Color.accentColor)
@@ -172,14 +178,14 @@ struct CaptureCard: View {
             .padding(8)
             .background(
                 isSelected ? Color.accentColor.opacity(Palette.tintOpacity) : Color.clear,
-                in: RoundedRectangle(cornerRadius: 8)
+                in: RoundedRectangle(cornerRadius: Radius.card)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: Radius.card)
                     .strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.15),
                                   lineWidth: isSelected ? 2 : 1)
             }
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card))
         }
         .buttonStyle(.plain)
         .simultaneousGesture(TapGesture(count: 2).onEnded {
@@ -208,12 +214,12 @@ struct EmptyLibraryView: View {
                     GridRow {
                         Button("Screenshot", systemImage: "camera.viewfinder") { model.capture(.screenshot) }
                             .accessibilityIdentifier("empty-take-screenshot")
-                        Text("or press \(Copy.screenshotShortcut) in any app")
+                        Text("or press \(Shortcut.screenshot.words) in any app")
                     }
                     GridRow {
                         Button("Record", systemImage: "record.circle") { model.capture(.recording) }
                             .accessibilityIdentifier("empty-record-screen")
-                        Text("or press \(Copy.recordShortcut) in any app")
+                        Text("or press \(Shortcut.recording.words) in any app")
                     }
                 }
                 .controlSize(.large)
@@ -249,7 +255,7 @@ struct NoticeBanner: View {
 /// A tinted strip with a coloured leading edge. The tone is carried by the
 /// edge and the wording, never by colour alone.
 struct Banner: View {
-    enum Tone {
+    enum Tone: CaseIterable {
         case info, warning, error
 
         var color: Color {

@@ -20,6 +20,8 @@ public final class CaptureRunner: @unchecked Sendable {
     private let scratchRoot: URL
     private let lock = NSLock()
     private var current: Process?
+    private var launched = false
+    private var cancelRequested = false
 
     public init(
         executable: URL = CaptureCommand.systemExecutable,
@@ -43,10 +45,12 @@ public final class CaptureRunner: @unchecked Sendable {
         let claimed = lock.withLock { () -> Bool in
             guard current == nil else { return false }
             current = process
+            launched = false
+            cancelRequested = false
             return true
         }
         guard claimed else { return nil }
-        defer { lock.withLock { current = nil } }
+        defer { lock.withLock { current = nil; launched = false } }
 
         do {
             try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
@@ -70,6 +74,12 @@ public final class CaptureRunner: @unchecked Sendable {
                 }
                 do {
                     try process.run()
+                    // A cancel that arrived before launch is honoured now.
+                    let cancelNow = lock.withLock { () -> Bool in
+                        launched = true
+                        return cancelRequested
+                    }
+                    if cancelNow { process.terminate() }
                 } catch {
                     process.terminationHandler = nil
                     continuation.resume(throwing: error)
@@ -91,8 +101,19 @@ public final class CaptureRunner: @unchecked Sendable {
     /// Closes the picker by terminating the tool. The system picker ignores an
     /// interrupt while it is open (measured on macOS 27.0.1), so this sends a
     /// terminate signal. Anything the tool already wrote is still reported.
+    ///
+    /// Safe at any moment: a process that has not launched yet cannot be
+    /// signalled, so the request is remembered and applied right after launch.
     public func cancel() {
-        lock.withLock { current }?.terminate()
+        let running = lock.withLock { () -> Process? in
+            guard let current else { return nil }
+            guard launched else {
+                cancelRequested = true
+                return nil
+            }
+            return current
+        }
+        running?.terminate()
     }
 
     static func files(in directory: URL) -> [URL] {

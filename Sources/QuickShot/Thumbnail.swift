@@ -18,12 +18,14 @@ struct ThumbnailView: View {
                     .aspectRatio(contentMode: .fit)
                 if item.kind == .video {
                     Image(systemName: "play.circle.fill")
+                        .accessibilityHidden(true)
                         .font(.largeTitle)
                         .symbolRenderingMode(.palette)
                         .foregroundStyle(.white, .black.opacity(0.55))
                 }
             } else {
                 Image(systemName: item.kind == .image ? "photo" : "film")
+                    .accessibilityHidden(true)
                     .font(.title)
                     .foregroundStyle(.secondary)
             }

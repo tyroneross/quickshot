@@ -1,5 +1,4 @@
 import AppKit
-import Carbon.HIToolbox
 import QuickShotCore
 import SwiftUI
 
@@ -33,9 +32,9 @@ struct MenuContent: View {
             Button("Cancel Capture") { model.cancelCapture() }
         } else {
             Button("Take Screenshot") { model.capture(.screenshot) }
-                .keyboardShortcut("s", modifiers: [.control, .shift])
+                .keyboardShortcut(Shortcut.screenshot.keyboardShortcut)
             Button("Record Screen") { model.capture(.recording) }
-                .keyboardShortcut("r", modifiers: [.control, .shift])
+                .keyboardShortcut(Shortcut.recording.keyboardShortcut)
         }
         Divider()
         Button("Show Library") { model.showLibrary() }
@@ -82,22 +81,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "Keep Capturing")
         alert.addButton(withTitle: "Quit Anyway")
         guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+        // Wait for the tool to exit so anything it wrote on the way out is
+        // filed instead of being left in scratch space.
         model.cancelCapture()
-        return .terminateNow
+        model.whenIdle { sender.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
     }
 
     private func registerHotKeys() {
-        let modifiers = controlKey | shiftKey
-        let screenshot = hotKeys.register(keyCode: kVK_ANSI_S, modifiers: modifiers) { [weak self] in
-            self?.model.capture(.screenshot)
+        let bindings: [(Shortcut, CaptureMode)] = [(.screenshot, .screenshot), (.recording, .recording)]
+        let unavailable = bindings.compactMap { shortcut, mode -> String? in
+            let registered = hotKeys.register(keyCode: shortcut.keyCode, modifiers: shortcut.carbonModifiers) { [weak self] in
+                self?.model.capture(mode)
+            }
+            return registered ? nil : shortcut.words
         }
-        let recording = hotKeys.register(keyCode: kVK_ANSI_R, modifiers: modifiers) { [weak self] in
-            self?.model.capture(.recording)
-        }
-        let unavailable = [
-            screenshot ? nil : Copy.screenshotShortcut,
-            recording ? nil : Copy.recordShortcut,
-        ].compactMap { $0 }
         if !unavailable.isEmpty, model.notice == nil {
             model.notice = .problem("Another app already uses \(unavailable.joined(separator: " and ")). The buttons and the menu bar item still work.")
         }

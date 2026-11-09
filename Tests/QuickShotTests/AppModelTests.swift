@@ -114,6 +114,65 @@ import Testing
         #expect(harness.model.notice == .nothingSaved)
     }
 
+    /// Quitting waits on this: the result of the cancelled capture is filed
+    /// before the waiting action runs.
+    @Test func whenIdleRunsAfterTheCancelledCaptureHasBeenFiled() async throws {
+        let harness = try Harness(tool: Tool.writesMovieWhenTerminated)
+        harness.model.start()
+        harness.model.capture(.recording)
+        try await harness.waitUntil { harness.toolRan }
+
+        var itemsSeenByWaiter: [String]?
+        harness.model.whenIdle { itemsSeenByWaiter = harness.model.items.map(\.kind.rawValue) }
+        #expect(itemsSeenByWaiter == nil, "must not run while the capture is still going")
+
+        harness.model.cancelCapture()
+        try await harness.waitUntil { itemsSeenByWaiter != nil }
+
+        #expect(itemsSeenByWaiter == ["video"], "the movie written on the way out must already be filed")
+        #expect(!harness.model.isCapturing)
+    }
+
+    @Test func whenIdleRunsImmediatelyIfNothingIsCapturing() throws {
+        let harness = try Harness(tool: Tool.writesPNG)
+        harness.model.start()
+        var ran = false
+        harness.model.whenIdle { ran = true }
+        #expect(ran)
+    }
+
+    @Test func aDeletedCapturesFolderIsCreatedAgainAndStillWatched() async throws {
+        let harness = try Harness(tool: Tool.writesPNG)
+        harness.model.start()
+        try FileManager.default.removeItem(at: harness.captures.url)
+
+        harness.model.reload()
+
+        #expect(FileManager.default.fileExists(atPath: harness.captures.url.path))
+        #expect(harness.model.notice == nil)
+        try writeRealPNG(to: harness.captures.url.appendingPathComponent("after.png"), hue: 0.5)
+        try await harness.waitUntil { !harness.model.items.isEmpty }
+        #expect(harness.model.items.map(\.name) == ["after"], "the re-created folder must be watched")
+    }
+
+    @Test func anUnreadableCapturesFolderIsReportedNotShownAsEmpty() throws {
+        let harness = try Harness(tool: Tool.writesPNG)
+        harness.model.start()
+        // Replace the folder with a plain file so it can be neither read nor re-created.
+        try FileManager.default.removeItem(at: harness.captures.url)
+        try Data("x".utf8).write(to: harness.captures.url)
+        defer { try? FileManager.default.removeItem(at: harness.captures.url) }
+
+        harness.model.reload()
+
+        guard case .problem(let message)? = harness.model.notice else {
+            Issue.record("expected a problem notice, got \(String(describing: harness.model.notice))")
+            return
+        }
+        #expect(message.contains(harness.captures.url.path))
+        #expect(harness.model.items.isEmpty)
+    }
+
     @Test func aFileAddedInFinderAppearsWithoutACapture() async throws {
         let harness = try Harness(tool: Tool.writesPNG)
         harness.model.start()

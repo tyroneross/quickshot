@@ -69,6 +69,32 @@ import Testing
         return seen.count
     }
 
+    /// Reads the leading edge of the notice strip, which sits directly under
+    /// the 52 pt toolbar row in `WindowFacsimile`, and returns the tone whose
+    /// colour it shows. The edge carries the tone, so this tells which notice
+    /// (if any) was actually drawn. Expected colours come from `Banner.Tone`
+    /// itself, the same values the view draws.
+    static func noticeTone(_ rep: NSBitmapImageRep, dark: Bool = false) throws -> Banner.Tone? {
+        let scale = CGFloat(rep.pixelsWide) / rep.size.width
+        let pixel = try #require(rep.colorAt(x: Int(1 * scale), y: Int(66 * scale))?.usingColorSpace(.sRGB))
+        let appearance = try #require(NSAppearance(named: dark ? .darkAqua : .aqua))
+        // Compare by hue: an off-screen bitmap shifts RGB values slightly
+        // (colour-space conversion) but keeps the hue. The window surface and
+        // the 12% tints have low saturation, so they never match a tone.
+        guard pixel.saturationComponent > 0.35 else { return nil }
+        func hueDistance(to tone: Banner.Tone) -> Double {
+            var hue = 0.0
+            appearance.performAsCurrentDrawingAppearance {
+                hue = (NSColor(tone.color).usingColorSpace(.sRGB) ?? .black).hueComponent
+            }
+            let d = abs(pixel.hueComponent - hue)
+            return min(d, 1 - d)
+        }
+        let nearest = Banner.Tone.allCases.min { hueDistance(to: $0) < hueDistance(to: $1) }
+        guard let nearest, hueDistance(to: nearest) < 0.05 else { return nil }
+        return nearest
+    }
+
     static func populated(_ harness: Harness) throws {
         let names = [
             ("Screenshot 2026-11-08 at 22.41.07.png", 0.58), ("Screenshot 2026-11-08 at 21.15.40.png", 0.08),
@@ -92,7 +118,7 @@ import Testing
 
         let rep = try await Self.render(harness.model, size: CGSize(width: 720, height: 572), dark: dark,
                                         name: "1-empty-permission-\(dark ? "dark" : "light")")
-        #expect(Self.distinctColours(rep) > 4)
+        #expect(try Self.noticeTone(rep, dark: dark) == .warning, "the permission notice was not drawn")
     }
 
     @Test(arguments: [false, true])
@@ -106,6 +132,7 @@ import Testing
         let rep = try await Self.render(harness.model, size: CGSize(width: 720, height: 572), dark: dark,
                                         name: "2-populated-selected-\(dark ? "dark" : "light")")
         #expect(Self.distinctColours(rep) > 12)
+        #expect(try Self.noticeTone(rep, dark: dark) == nil, "a notice was drawn with nothing to report")
     }
 
     @Test func smallestWindowWithALongErrorAndARecordingSelected() async throws {
@@ -118,7 +145,7 @@ import Testing
 
         let rep = try await Self.render(harness.model, size: CGSize(width: 480, height: 412), dark: false,
                                         name: "3-smallest-error-video")
-        #expect(Self.distinctColours(rep) > 12)
+        #expect(try Self.noticeTone(rep) == .error, "the problem notice was not drawn")
     }
 
     /// The real window with its real AppKit toolbar, drawn from the window's
@@ -188,7 +215,7 @@ import Testing
                                         name: "4-capturing")
         harness.model.cancelCapture()
         try await harness.waitUntilIdle()
-        #expect(Self.distinctColours(rep) > 12)
+        #expect(try Self.noticeTone(rep) == .info, "the capture-in-progress strip was not drawn")
     }
 
     @Test func nothingSavedNotice() async throws {
@@ -200,6 +227,6 @@ import Testing
 
         let rep = try await Self.render(harness.model, size: CGSize(width: 720, height: 572), dark: false,
                                         name: "5-empty-nothing-saved")
-        #expect(Self.distinctColours(rep) > 4)
+        #expect(try Self.noticeTone(rep) == .info, "the nothing-saved notice was not drawn")
     }
 }

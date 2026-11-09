@@ -129,6 +129,20 @@ import TestSupport
         #expect(!runner.isRunning)
     }
 
+    @Test func cancelWithNothingRunningDoesNothing() async throws {
+        let folder = try TempFolder()
+        let tool = try folder.script("\(Fixture.pngPrintf) > \"$OUT\"")
+        let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
+
+        runner.cancel()
+
+        // The stale cancel must not leak into the next capture.
+        guard case .captured? = await runner.run(.screenshot) else {
+            Issue.record("a cancel issued while idle cancelled the next capture")
+            return
+        }
+    }
+
     private func scratchFolders(in folder: TempFolder) throws -> [String] {
         try FileManager.default.contentsOfDirectory(atPath: folder.url.path)
             .filter { $0.hasPrefix("QuickShot-") }

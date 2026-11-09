@@ -16,6 +16,26 @@ import TestSupport
         #expect(CaptureFormat.detect(header: bytes) == CaptureFormat(kind: kind, fileExtension: ext))
     }
 
+    /// A filed capture must always be listed: the library and the filer read
+    /// the same table.
+    @Test func everyFormatTheFilerProducesIsListedByTheLibrary() throws {
+        let folder = try TempFolder()
+        for format in CaptureFormat.all {
+            #expect(CaptureFormat.kind(forExtension: format.fileExtension) == format.kind)
+            try folder.write(Fixture.png, named: "sample.\(format.fileExtension)")
+        }
+        let listed = try CaptureLibrary(directory: folder.url).items()
+        #expect(listed.count == CaptureFormat.all.count)
+    }
+
+    @Test func otherSpellingsAndUnknownExtensionsAreClassified() {
+        #expect(CaptureFormat.kind(forExtension: "JPEG") == .image)
+        #expect(CaptureFormat.kind(forExtension: "tif") == .image)
+        #expect(CaptureFormat.kind(forExtension: "M4V") == .video)
+        #expect(CaptureFormat.kind(forExtension: "txt") == nil)
+        #expect(CaptureFormat.kind(forExtension: "") == nil)
+    }
+
     @Test func rejectsContentThatIsNotACapture() {
         #expect(CaptureFormat.detect(header: Fixture.text) == nil)
         #expect(CaptureFormat.detect(header: []) == nil)
@@ -74,21 +94,58 @@ import TestSupport
         #expect(try FileManager.default.contentsOfDirectory(atPath: library.url.path).isEmpty)
     }
 
-    @Test func fileAllFilesWhatItCanReportsTheRestAndClearsScratch() throws {
-        let parent = try TempFolder(), library = try TempFolder()
+    private func scratchFolder(in parent: TempFolder) throws -> URL {
         let scratch = parent.url.appendingPathComponent("QuickShot-scratch", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        return scratch
+    }
+
+    /// A capture in a format the filer cannot type is the person's only copy.
+    @Test func fileAllKeepsACaptureItCannotRecogniseAndSaysWhereItIs() throws {
+        let parent = try TempFolder(), library = try TempFolder()
+        let scratch = try scratchFolder(in: parent)
         let good = scratch.appendingPathComponent("capture.png")
-        let bad = scratch.appendingPathComponent("capture-2.png")
+        let bad = scratch.appendingPathComponent("capture-2.bmp")
         try Data(Fixture.png).write(to: good)
         try Data(Fixture.text).write(to: bad)
 
-        let outcome = CaptureFiler.fileAll([good, bad], into: library.url, date: date)
+        let outcome = CaptureFiler.fileAll([good, bad], into: library.url, date: date, timeZone: utc)
 
-        #expect(outcome.filed.count == 1)
-        #expect(outcome.filed.first?.pathExtension == "png")
+        #expect(outcome.filed.map(\.lastPathComponent) == ["Screenshot 2026-11-09 at 06.41.07.png"])
+        let kept = library.url.appendingPathComponent("Unfiled capture 2026-11-09 at 06.41.07.bmp")
+        #expect(try Data(contentsOf: kept) == Data(Fixture.text), "the unrecognised capture must survive intact")
         #expect(outcome.problems.count == 1)
-        #expect(outcome.problems.first?.contains("capture-2.png") == true)
+        #expect(outcome.problems.first?.contains(kept.path) == true, "the notice must say where the file is")
+        #expect(!FileManager.default.fileExists(atPath: scratch.path), "an emptied scratch folder is removed")
+    }
+
+    /// When the captures folder itself is unusable, the capture stays where
+    /// the tool wrote it and the scratch folder is not removed.
+    @Test func fileAllLeavesTheCaptureInScratchWhenTheFolderIsUnusable() throws {
+        let parent = try TempFolder()
+        let scratch = try scratchFolder(in: parent)
+        let capture = scratch.appendingPathComponent("capture.png")
+        try Data(Fixture.png).write(to: capture)
+        // A plain file where the captures folder should be.
+        let blocked = try parent.write(Fixture.text, named: "not-a-folder")
+
+        let outcome = CaptureFiler.fileAll([capture], into: blocked, date: date, timeZone: utc)
+
+        #expect(outcome.filed.isEmpty)
+        #expect(try Data(contentsOf: capture) == Data(Fixture.png), "the capture must not be deleted")
+        #expect(outcome.problems.first?.contains(capture.path) == true)
+    }
+
+    @Test func fileAllRemovesTheScratchFolderOnceEverythingIsFiled() throws {
+        let parent = try TempFolder(), library = try TempFolder()
+        let scratch = try scratchFolder(in: parent)
+        let capture = scratch.appendingPathComponent("capture.mov")
+        try Data(Fixture.mov).write(to: capture)
+
+        let outcome = CaptureFiler.fileAll([capture], into: library.url, date: date, timeZone: utc)
+
+        #expect(outcome.problems.isEmpty)
+        #expect(outcome.filed.map(\.lastPathComponent) == ["Recording 2026-11-09 at 06.41.07.mov"])
         #expect(!FileManager.default.fileExists(atPath: scratch.path))
     }
 

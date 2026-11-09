@@ -60,13 +60,16 @@ import Testing
         }
     }
 
-    /// Records why the views do not use the system secondary colour.
-    @Test func systemSecondaryTextIsMeasuredNotAssumed() throws {
+    /// Why the views do not use the system secondary colour: on a light
+    /// window it measures under 4.5:1. If this starts failing, the system
+    /// colour has become usable and the custom strength can go.
+    @Test func systemSecondaryTextFallsShortOnALightWindow() throws {
         let appearance = try #require(NSAppearance(named: .aqua))
         let window = Self.resolve(.windowBackgroundColor, in: appearance).rgb
         let secondary = Self.resolve(.secondaryLabelColor, in: appearance)
         let ratio = Self.contrast(Self.blend(secondary.rgb, alpha: secondary.alpha, over: window), window)
         print("contrast aqua window: system secondary \(String(format: "%.2f", ratio))")
-        #expect(ratio > 1)
+        #expect(ratio < 4.5)
+        #expect(ratio > 3)
     }
 }

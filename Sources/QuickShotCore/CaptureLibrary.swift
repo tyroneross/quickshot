@@ -56,7 +56,7 @@ public struct CaptureLibrary: Sendable {
             options: [.skipsHiddenFiles]
         )
         return urls.compactMap { url -> CaptureItem? in
-            guard let kind = Self.kind(forExtension: url.pathExtension),
+            guard let kind = CaptureFormat.kind(forExtension: url.pathExtension),
                   let values = try? url.resourceValues(forKeys: keys),
                   values.isRegularFile == true
             else { return nil }
@@ -68,16 +68,6 @@ public struct CaptureLibrary: Sendable {
 
     public func trash(_ item: CaptureItem) throws {
         try remove(item.url)
-    }
-
-    static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "heic", "tiff", "tif", "gif", "pdf"]
-    static let videoExtensions: Set<String> = ["mov", "mp4", "m4v"]
-
-    static func kind(forExtension pathExtension: String) -> CaptureKind? {
-        let lowered = pathExtension.lowercased()
-        if imageExtensions.contains(lowered) { return .image }
-        if videoExtensions.contains(lowered) { return .video }
-        return nil
     }
 }
 

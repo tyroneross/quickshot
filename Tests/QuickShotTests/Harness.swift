@@ -75,6 +75,8 @@ enum Tool {
     static let cancels = "\(mark); exit 1"
     static let fails = "\(mark); echo 'could not create image from display' >&2; exit 1"
     static let waits = "\(mark); while :; do sleep 0.05; done"
+    /// Like a recording: runs until terminated, then writes a movie.
+    static let writesMovieWhenTerminated = "trap 'printf \"\\000\\000\\000\\024ftypqt  0000\" > \"$OUT\"; exit 0' TERM; \(mark); while :; do sleep 0.05; done"
 }
 
 /// Draws a real PNG so thumbnails and the clipboard handle true image data.

@@ -13,7 +13,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/build/QuickShot.app"
 IDENTITY="${QUICKSHOT_CODESIGN_IDENTITY:--}"
-BUNDLE_ID="ai.rosslabs.quickshot"
+BUNDLE_ID="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$ROOT/Resources/Info.plist")"
 
 cd "$ROOT"
 swift build -c release

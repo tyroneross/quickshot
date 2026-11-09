@@ -39,6 +39,7 @@ final class AppModel {
     @ObservationIgnored private var watcher: DirectoryWatcher?
     @ObservationIgnored private var libraryWasVisible = false
     @ObservationIgnored private var copiedReset: Task<Void, Never>?
+    @ObservationIgnored private var idleWaiters: [() -> Void] = []
 
     /// Window control, set by the app delegate.
     @ObservationIgnored var showLibrary: () -> Void = {}
@@ -63,20 +64,34 @@ final class AppModel {
     }
 
     func start() {
-        do {
-            try library.ensureDirectory()
-        } catch {
-            notice = .problem("Could not create \(library.directory.path): \(error.localizedDescription)")
-        }
+        try? library.ensureDirectory() // a failure surfaces through reload()
+        watch()
         reload()
-        watcher = DirectoryWatcher(directory: library.directory) { [weak self] in
-            Task { @MainActor in self?.reload() }
-        }
         if !screenAccess.isGranted() { notice = .permissionNeeded }
     }
 
+    private func watch() {
+        watcher = DirectoryWatcher(directory: library.directory) { [weak self] in
+            Task { @MainActor in self?.reload() }
+        }
+    }
+
+    /// Re-reads the folder. If it has gone (deleted or moved in Finder), it is
+    /// created again and watched afresh; a folder that still cannot be read is
+    /// reported instead of being shown as empty.
     func reload() {
-        items = (try? library.items()) ?? []
+        do {
+            items = try library.items()
+        } catch {
+            do {
+                try library.ensureDirectory()
+                watch()
+                items = try library.items()
+            } catch {
+                items = []
+                notice = .problem("Could not read \(library.directory.path): \(error.localizedDescription)")
+            }
+        }
         if let selection, !items.contains(where: { $0.id == selection }) {
             self.selection = nil
         }
@@ -107,12 +122,22 @@ final class AppModel {
             let result = await runner.run(mode)
             isCapturing = false
             handle(result)
+            let waiters = idleWaiters
+            idleWaiters = []
+            waiters.forEach { $0() }
         }
     }
 
     /// Closes the system picker without saving.
     func cancelCapture() {
         runner.cancel()
+    }
+
+    /// Runs `action` once no capture is running: now if idle, otherwise right
+    /// after the running capture's result has been handled.
+    func whenIdle(_ action: @escaping () -> Void) {
+        guard isCapturing else { return action() }
+        idleWaiters.append(action)
     }
 
     func copy(_ item: CaptureItem) {
