@@ -4,7 +4,7 @@ import SwiftUI
 /// Interface wording shared by the window, the menu and the tooltips.
 enum Copy {
     static let permissionOff = "Screen Recording is off."
-    static let permissionAsked = "Allowed it? Reopen QuickShot to finish."
+    static let permissionAsked = "Allow QuickShot in Settings, then reopen it."
     static let nothingSaved = "Nothing saved: cancelled, or sent to the clipboard."
 }
 
@@ -336,8 +336,11 @@ struct NoticeBanner: View {
         case .permissionNeeded:
             // Two short steps instead of one paragraph: turn it on, then reopen.
             if model.askedForAccess {
+                // Settings stays reachable: the request may have been refused
+                // or left unfinished.
                 Banner(tone: .warning, text: Copy.permissionAsked,
-                       actionTitle: "Reopen QuickShot", action: CaptureActions.relaunch,
+                       actionTitle: "Reopen QuickShot", action: { model.reopen() },
+                       secondaryTitle: "Settings", secondaryAction: CaptureActions.openScreenRecordingSettings,
                        onDismiss: { model.notice = nil })
             } else {
                 Banner(tone: .warning, text: Copy.permissionOff,
@@ -383,6 +386,9 @@ struct Banner: View {
     let text: String
     var actionTitle: String?
     var action: (() -> Void)?
+    /// A second, quieter action beside the main one.
+    var secondaryTitle: String?
+    var secondaryAction: (() -> Void)?
     var onDismiss: (() -> Void)?
 
     private var message: some View {
@@ -390,6 +396,16 @@ struct Banner: View {
     }
 
     @ViewBuilder private var actionButton: some View {
+        HStack(spacing: 8) {
+            mainActionButton
+            if let secondaryTitle, let secondaryAction {
+                Button(secondaryTitle, action: secondaryAction)
+                    .accessibilityIdentifier("notice-secondary-action")
+            }
+        }
+    }
+
+    @ViewBuilder private var mainActionButton: some View {
         if let actionTitle, let action {
             // A warning's action takes the warning's colour. Black on amber is
             // measured in ContrastTests; white would fail.

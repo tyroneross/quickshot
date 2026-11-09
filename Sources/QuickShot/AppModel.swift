@@ -35,8 +35,15 @@ final class AppModel {
     var notice: Notice?
     var selection: CaptureItem.ID?
     /// Whether macOS has been asked for Screen Recording access this launch.
-    /// After that, the only step left is reopening the app.
+    /// After that, the step left is reopening the app.
     private(set) var askedForAccess = false
+    /// True from the moment a reopen is requested until it fails, so a second
+    /// click cannot start a second copy.
+    private(set) var isReopening = false
+    /// Starts a new copy of the app; reports an error text on failure.
+    @ObservationIgnored var launchNewInstance: @MainActor (@escaping @MainActor (String?) -> Void) -> Void = { CaptureActions.launchNewInstance(completion: $0) }
+    /// Quits this copy once the new one is running.
+    @ObservationIgnored var quit: @MainActor () -> Void = { NSApp.terminate(nil) }
 
     let library: CaptureLibrary
 
@@ -155,6 +162,23 @@ final class AppModel {
     func requestScreenAccess() {
         screenAccess.request()
         askedForAccess = true
+    }
+
+    /// Reopens the app so a new Screen Recording grant takes effect. This copy
+    /// quits only after the new one has started; if that fails it stays open
+    /// and says why.
+    func reopen() {
+        guard !isReopening else { return }
+        isReopening = true
+        launchNewInstance { [weak self] failure in
+            guard let self else { return }
+            if let failure {
+                self.isReopening = false
+                self.notice = .problem("QuickShot could not reopen itself: \(failure) Quit and open it again by hand.")
+            } else {
+                self.quit()
+            }
+        }
     }
 
     /// Closes the system picker without saving. Cancelling the task covers

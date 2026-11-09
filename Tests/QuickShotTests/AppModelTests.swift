@@ -55,6 +55,40 @@ import Testing
         #expect(harness.windowEvents == ["show"])
     }
 
+    /// Reopen starts a new copy first and quits this one only when that worked.
+    @Test func reopenQuitsOnlyAfterTheNewCopyStartsAndIgnoresASecondClick() throws {
+        let harness = try Harness(tool: Tool.writesPNG, granted: false)
+        var launches: [@MainActor (String?) -> Void] = []
+        var quits = 0
+        harness.model.launchNewInstance = { launches.append($0) }
+        harness.model.quit = { quits += 1 }
+
+        harness.model.reopen()
+        harness.model.reopen() // a second click while the first is still starting
+        #expect(launches.count == 1, "a second click started a second copy")
+        #expect(quits == 0, "this copy quit before the new one was running")
+
+        launches[0](nil)
+        #expect(quits == 1)
+    }
+
+    @Test func aFailedReopenKeepsTheAppRunningAndSaysWhy() throws {
+        let harness = try Harness(tool: Tool.writesPNG, granted: false)
+        var quits = 0
+        harness.model.launchNewInstance = { $0("The application cannot be opened.") }
+        harness.model.quit = { quits += 1 }
+
+        harness.model.reopen()
+
+        #expect(quits == 0, "the only running copy quit after a failed relaunch")
+        #expect(!harness.model.isReopening, "a retry must be possible")
+        guard case .problem(let message)? = harness.model.notice else {
+            Issue.record("expected a problem notice")
+            return
+        }
+        #expect(message.contains("The application cannot be opened."))
+    }
+
     @Test func thePermissionNoticeClearsOnceAccessIsGranted() throws {
         let harness = try Harness(tool: Tool.writesPNG, granted: false)
         harness.model.start()

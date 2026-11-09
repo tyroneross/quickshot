@@ -55,13 +55,15 @@ enum CaptureActions {
         NSWorkspace.shared.open(url)
     }
 
-    /// Starts a fresh copy of the app and quits this one. macOS only applies
-    /// a new Screen Recording grant to a newly started app.
-    static func relaunch() {
+    /// Starts a fresh copy of the app. macOS only applies a new Screen
+    /// Recording grant to a newly started app. Reports whether the new copy
+    /// started; the caller quits this one only then.
+    static func launchNewInstance(completion: @escaping @MainActor (_ error: String?) -> Void) {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, _ in
-            Task { @MainActor in NSApp.terminate(nil) }
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { app, error in
+            let failure = app == nil ? (error?.localizedDescription ?? "The app could not be started again.") : nil
+            Task { @MainActor in completion(failure) }
         }
     }
 
