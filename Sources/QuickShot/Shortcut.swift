@@ -40,6 +40,16 @@ struct Shortcut: Sendable {
             case .command: "Command"
             }
         }
+
+        /// The key's symbol, as macOS menus draw it.
+        var glyph: String {
+            switch self {
+            case .control: "⌃"
+            case .option: "⌥"
+            case .shift: "⇧"
+            case .command: "⌘"
+            }
+        }
     }
 
     var carbonModifiers: Int { modifiers.reduce(0) { $0 | $1.carbonMask } }
@@ -52,7 +62,15 @@ struct Shortcut: Sendable {
         (modifiers.map(\.word) + [String(key).uppercased()]).joined(separator: " ")
     }
 
-    static let screenshot = Shortcut(keyCode: kVK_ANSI_S, key: "s", modifiers: [.control, .shift])
-    static let recording = Shortcut(keyCode: kVK_ANSI_R, key: "r", modifiers: [.control, .shift])
-    static let clipboard = Shortcut(keyCode: kVK_ANSI_V, key: "v", modifiers: [.control, .shift])
+    /// Compact form, e.g. "⌃⌥S", for places where words would crowd.
+    var glyphs: String {
+        modifiers.map(\.glyph).joined() + String(key).uppercased()
+    }
+
+    // Control Option, not Control Shift: Snagit uses Control Shift S (Image
+    // Capture), R (Repeat Last Capture) and V (Video Capture), and wins those
+    // keys whenever it is running (TechSmith hotkey guide, checked 2026-11-09).
+    static let screenshot = Shortcut(keyCode: kVK_ANSI_S, key: "s", modifiers: [.control, .option])
+    static let recording = Shortcut(keyCode: kVK_ANSI_R, key: "r", modifiers: [.control, .option])
+    static let clipboard = Shortcut(keyCode: kVK_ANSI_V, key: "v", modifiers: [.control, .option])
 }

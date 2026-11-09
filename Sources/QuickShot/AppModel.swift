@@ -34,6 +34,9 @@ final class AppModel {
     var isCapturing: Bool { activeCapture != nil }
     var notice: Notice?
     var selection: CaptureItem.ID?
+    /// Whether macOS has been asked for Screen Recording access this launch.
+    /// After that, the only step left is reopening the app.
+    private(set) var askedForAccess = false
 
     let library: CaptureLibrary
 
@@ -126,7 +129,7 @@ final class AppModel {
         guard screenAccess.isGranted() else {
             // Without access the tool can exit cleanly with only the desktop
             // wallpaper in the image, so nothing is captured until it is granted.
-            screenAccess.request()
+            requestScreenAccess()
             notice = .permissionNeeded
             showLibrary()
             return
@@ -146,6 +149,12 @@ final class AppModel {
             idleWaiters = []
             waiters.forEach { $0() }
         }
+    }
+
+    /// Asks macOS for Screen Recording access (the system shows its prompt once).
+    func requestScreenAccess() {
+        screenAccess.request()
+        askedForAccess = true
     }
 
     /// Closes the system picker without saving. Cancelling the task covers

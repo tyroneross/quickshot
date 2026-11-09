@@ -3,8 +3,9 @@ import SwiftUI
 
 /// Interface wording shared by the window, the menu and the tooltips.
 enum Copy {
-    static let permission = "QuickShot needs Screen Recording permission before it can capture. Turn it on in System Settings, then quit and reopen QuickShot."
-    static let nothingSaved = "Nothing was saved. The capture was cancelled, or sent to the clipboard by holding Control."
+    static let permissionOff = "Screen Recording is off."
+    static let permissionAsked = "Allowed it? Reopen QuickShot to finish."
+    static let nothingSaved = "Nothing saved: cancelled, or sent to the clipboard."
 }
 
 /// Corner radii, one family.
@@ -22,7 +23,7 @@ enum Layout {
     static let spacing: CGFloat = 10
     /// The strip holding the two capture buttons. Fixed, so nothing below it
     /// moves when the buttons change to the capturing status.
-    static let captureBarHeight: CGFloat = 88
+    static let captureBarHeight: CGFloat = 100
     static let cardMinWidth: CGFloat = 140
     /// The grid grows with its content up to about two rows, then scrolls.
     static let gridMaxIdealHeight: CGFloat = 330
@@ -54,9 +55,9 @@ struct LibraryView: View {
             if model.activeCapture == nil, let notice = model.notice {
                 NoticeBanner(notice: notice)
             }
-            if model.items.isEmpty {
-                EmptyHint()
-            } else {
+            // With no captures the two buttons are the whole screen: they
+            // already say what to do, so nothing is written under them.
+            if !model.items.isEmpty {
                 CaptureGrid()
             }
         }
@@ -64,10 +65,14 @@ struct LibraryView: View {
         .frame(minWidth: Layout.windowWidth, idealWidth: Layout.windowWidth, maxWidth: .infinity,
                maxHeight: .infinity, alignment: .top)
         .toolbar {
-            // Always present, greyed out with nothing selected: a title bar
-            // that appears on selection would push every card down.
-            ToolbarItemGroup(placement: .primaryAction) {
-                ItemActions(item: model.selectedItem, inToolbar: true)
+            // Present whenever there are captures, greyed out with nothing
+            // selected: a title bar that appeared on selection would push
+            // every card down. With no captures there is nothing to act on,
+            // so the first screen is just the two buttons.
+            if !model.items.isEmpty {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    ItemActions(item: model.selectedItem, inToolbar: true)
+                }
             }
         }
     }
@@ -98,12 +103,12 @@ struct CaptureBar: View {
                     .help("Close the screenshot picker without saving")
                     .accessibilityIdentifier("cancel-capture")
             case nil:
-                CaptureTile(title: "Screenshot", symbol: "camera.fill", symbolColor: .primary,
+                CaptureTile(title: "Screenshot", symbol: "camera.fill", symbolColor: .primary, shortcut: .screenshot,
                             help: "Take a screenshot (\(Shortcut.screenshot.words))") {
                     model.capture(.screenshot)
                 }
                 .accessibilityIdentifier("take-screenshot")
-                CaptureTile(title: "Record", symbol: "record.circle", symbolColor: .red,
+                CaptureTile(title: "Record", symbol: "record.circle", symbolColor: .red, shortcut: .recording,
                             help: "Record the screen (\(Shortcut.recording.words))") {
                     model.capture(.recording)
                 }
@@ -133,23 +138,29 @@ struct CaptureStatus: View {
     }
 }
 
-/// One large capture button: a plain symbol above its name.
+/// One large capture button: a plain symbol, its name, and its shortcut as
+/// key symbols.
 struct CaptureTile: View {
     let title: String
     let symbol: String
     let symbolColor: Color
+    let shortcut: Shortcut
     let help: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 4) {
+            VStack(spacing: 3) {
                 Image(systemName: symbol)
                     .font(.system(size: 26))
                     .foregroundStyle(symbolColor)
                     .accessibilityHidden(true)
                 Text(title)
                     .font(.body.weight(.medium))
+                Text(shortcut.glyphs)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.supportingText)
+                    .accessibilityLabel(shortcut.words)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -316,25 +327,6 @@ struct CaptureCard: View {
     }
 }
 
-/// Shown until the first capture exists: what is missing and how to start.
-/// The two capture buttons sit directly above, so this stays to two lines.
-struct EmptyHint: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("No captures yet. In any app, press \(Shortcut.screenshot.words) for a screenshot or \(Shortcut.recording.words) to record.")
-            Text("Captures are saved to \((model.library.directory.path as NSString).abbreviatingWithTildeInPath).")
-                .font(.subheadline)
-                .foregroundStyle(Color.supportingText)
-        }
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding([.horizontal, .bottom], Layout.padding)
-        .accessibilityIdentifier("empty-hint")
-    }
-}
-
 struct NoticeBanner: View {
     @Environment(AppModel.self) private var model
     let notice: AppModel.Notice
@@ -342,9 +334,20 @@ struct NoticeBanner: View {
     var body: some View {
         switch notice {
         case .permissionNeeded:
-            Banner(tone: .warning, text: Copy.permission,
-                   actionTitle: "Open Settings", action: CaptureActions.openScreenRecordingSettings,
-                   onDismiss: { model.notice = nil })
+            // Two short steps instead of one paragraph: turn it on, then reopen.
+            if model.askedForAccess {
+                Banner(tone: .warning, text: Copy.permissionAsked,
+                       actionTitle: "Reopen QuickShot", action: CaptureActions.relaunch,
+                       onDismiss: { model.notice = nil })
+            } else {
+                Banner(tone: .warning, text: Copy.permissionOff,
+                       actionTitle: "Turn On",
+                       action: {
+                           model.requestScreenAccess()
+                           CaptureActions.openScreenRecordingSettings()
+                       },
+                       onDismiss: { model.notice = nil })
+            }
         case .nothingSaved:
             Banner(tone: .info, text: Copy.nothingSaved, onDismiss: { model.notice = nil })
         case .problem(let message):
@@ -382,29 +385,42 @@ struct Banner: View {
     var action: (() -> Void)?
     var onDismiss: (() -> Void)?
 
+    private var message: some View {
+        Text(text).accessibilityLabel("\(tone.word). \(text)")
+    }
+
+    @ViewBuilder private var actionButton: some View {
+        if let actionTitle, let action {
+            // A warning's action takes the warning's colour. Black on amber is
+            // measured in ContrastTests; white would fail.
+            if tone == .warning {
+                Button(action: action) { Text(actionTitle).foregroundStyle(Palette.onWarning) }
+                    .buttonStyle(.borderedProminent)
+                    .tint(tone.color)
+                    .accessibilityIdentifier("notice-action")
+            } else {
+                Button(actionTitle, action: action)
+                    .accessibilityIdentifier("notice-action")
+            }
+        }
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: Layout.spacing) {
-            // The action sits under the message, in reading order, so the
-            // message keeps the full width instead of wrapping beside a button.
-            VStack(alignment: .leading, spacing: 8) {
-                Text(text)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel("\(tone.word). \(text)")
-                if let actionTitle, let action {
-                    // A warning's action takes the warning's colour. Black on
-                    // amber is measured in ContrastTests; white would fail.
-                    if tone == .warning {
-                        Button(action: action) { Text(actionTitle).foregroundStyle(Palette.onWarning) }
-                            .buttonStyle(.borderedProminent)
-                            .tint(tone.color)
-                            .accessibilityIdentifier("notice-action")
-                    } else {
-                        Button(actionTitle, action: action)
-                            .accessibilityIdentifier("notice-action")
-                    }
+            // A short message and its action share one row; a long message
+            // takes the full width with the action under it, in reading order.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Layout.spacing) {
+                    message.lineLimit(1).fixedSize()
+                    Spacer(minLength: 0)
+                    actionButton
                 }
+                VStack(alignment: .leading, spacing: 8) {
+                    message.fixedSize(horizontal: false, vertical: true)
+                    actionButton
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             if let onDismiss {
                 Button("Dismiss", systemImage: "xmark", action: onDismiss)
                     .labelStyle(.iconOnly)

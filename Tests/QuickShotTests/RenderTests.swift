@@ -201,8 +201,8 @@ import Testing
         print("window empty: \(Int(size.width))x\(Int(size.height))")
 
         #expect(size.width == Layout.windowWidth)
-        #expect(size.height > Layout.captureBarHeight, "the hint under the buttons is missing")
-        #expect(size.height < Layout.captureBarHeight + 110, "the empty window is taller than its content needs")
+        #expect(size.height == Layout.captureBarHeight, "with no captures the window is just the two buttons")
+        #expect((window.toolbar?.items.count ?? 0) == 0, "item actions must not show when there is nothing to act on")
     }
 
     @Test func theWindowGrowsWithCapturesUpToTheScrollLimit() async throws {

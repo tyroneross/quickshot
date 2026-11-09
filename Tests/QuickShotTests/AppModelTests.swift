@@ -41,6 +41,7 @@ import Testing
         harness.model.start()
         #expect(harness.model.notice == .permissionNeeded, "the need is stated at launch")
         #expect(harness.access.requests == 0, "no system prompt until a capture is asked for")
+        #expect(!harness.model.askedForAccess, "the first step shown is turning it on")
 
         harness.model.capture(.screenshot)
         try await Task.sleep(for: .milliseconds(200))
@@ -48,6 +49,7 @@ import Testing
         #expect(!harness.model.isCapturing)
         #expect(!harness.toolRan, "the tool must not run without access")
         #expect(harness.access.requests == 1)
+        #expect(harness.model.askedForAccess, "after asking, the step shown is reopening the app")
         #expect(harness.model.notice == .permissionNeeded)
         #expect(harness.model.items.isEmpty)
         #expect(harness.windowEvents == ["show"])

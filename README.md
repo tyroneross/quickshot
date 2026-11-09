@@ -6,9 +6,9 @@ A small macOS app for screenshots and screen recordings. Screenshots use the sys
 
 | To do this | Do this |
 |---|---|
-| Take a screenshot | Press Control Shift S in any app, or click the camera button (**Screenshot**). Drag an area, or press Space to pick a window |
-| Record the screen | Press Control Shift R in any app, or click the red record button (**Record**). Recording of the main display starts at once and the QuickShot window hides |
-| Stop a recording | Press Control Shift R again, choose **Stop Recording** from the QuickShot menu bar item (it turns into a filled record dot), or click the Dock icon and then **Stop Recording** |
+| Take a screenshot | Press Control Option S in any app, or click the camera button (**Screenshot**). Drag an area, or press Space to pick a window |
+| Record the screen | Press Control Option R in any app, or click the red record button (**Record**). Recording of the main display starts at once and the QuickShot window hides |
+| Stop a recording | Press Control Option R again, choose **Stop Recording** from the QuickShot menu bar item (it turns into a filled record dot), or click the Dock icon and then **Stop Recording** |
 | Cancel a screenshot | Press Escape |
 | Copy a capture | Select it, then Command C (or the copy symbol in the title bar) |
 | Annotate a screenshot | Select it, then Command Return (opens Preview; use Markup) |
@@ -22,9 +22,11 @@ Selecting a capture shows four symbols in the title bar: copy, annotate (or open
 
 The menu bar item offers the same capture actions when the window is closed.
 
+The shortcuts use Control Option on purpose: Snagit uses Control Shift S, R and V for its own captures and wins those keys whenever it is running.
+
 ## Clipboard library
 
-QuickShot also keeps a history of what you copy. Press Control Shift V in any app, or choose **Show Clipboard** from the menu bar item or the Dock menu.
+QuickShot also keeps a history of what you copy. Press Control Option V in any app, or choose **Show Clipboard** from the menu bar item or the Dock menu.
 
 | To do this | Do this |
 |---|---|
@@ -59,9 +61,8 @@ swift test                       # runs the test suite
 
 macOS only lets an app capture other apps' windows after you allow it:
 
-1. Open QuickShot and click **Screenshot**. macOS asks for permission once.
-2. Click **Open Settings** in QuickShot's notice. It opens the screen recording list in System Settings > Privacy & Security. Turn on QuickShot there.
-3. Quit and reopen QuickShot.
+1. Click **Turn On** in QuickShot's notice. macOS asks once and System Settings opens at the screen recording list. Turn on QuickShot there.
+2. Click **Reopen QuickShot** in the notice.
 
 Until then QuickShot refuses to capture, because macOS would otherwise hand back an image of only the desktop wallpaper.
 

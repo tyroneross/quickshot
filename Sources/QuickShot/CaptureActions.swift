@@ -55,6 +55,16 @@ enum CaptureActions {
         NSWorkspace.shared.open(url)
     }
 
+    /// Starts a fresh copy of the app and quits this one. macOS only applies
+    /// a new Screen Recording grant to a newly started app.
+    static func relaunch() {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, _ in
+            Task { @MainActor in NSApp.terminate(nil) }
+        }
+    }
+
     static func openScreenRecordingSettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else { return }
         NSWorkspace.shared.open(url)
