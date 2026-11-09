@@ -238,15 +238,43 @@ import Testing
         let harness = try Harness(tool: Tool.writesPNG, windowVisible: false)
         harness.model.start()
         let notified = Notified()
-        harness.model.notify = { notified.record($0) }
+        harness.model.notify = { notified.record($0); return true }
 
         harness.model.capture(.area)
         try await harness.waitUntilIdle()
+        try await harness.waitUntil { !notified.items.isEmpty }
 
         #expect(notified.items.count == 1)
         #expect(notified.items.first?.kind == .image)
         #expect(notified.items.first?.id == harness.model.selection)
         #expect(!harness.windowVisible, "a closed window stays closed; the notification did the telling")
+    }
+
+    /// Codex, 2026-11-09: with the window closed and notifications not
+    /// allowed, a capture gave no signal at all.
+    @Test func whenNoNotificationCanBeShownTheWindowIsShownInstead() async throws {
+        let harness = try Harness(tool: Tool.writesPNG, windowVisible: false)
+        harness.model.start()
+        harness.model.notify = { _ in false }
+        harness.model.capture(.area)
+        try await harness.waitUntilIdle()
+        try await harness.waitUntil { harness.windowVisible }
+        #expect(harness.windowVisible)
+    }
+
+    /// Codex, 2026-11-09: a failed shrink set a problem notice that stayed
+    /// behind a closed window while the notification said "saved".
+    @Test func aProblemAfterACaptureBringsTheWindowForward() async throws {
+        let harness = try Harness(tool: Tool.recordsUntilInterrupted, windowVisible: false)
+        harness.model.start()
+        harness.model.shrink = { _ in throw MovieShrinker.Failure.exportFailed("no encoder") }
+        harness.model.notify = { _ in Issue.record("a problem is shown in the window, not hidden behind a notification"); return true }
+        harness.model.capture(.recording)
+        try await harness.waitUntil { harness.toolRan }
+        harness.model.stopRecording()
+        try await harness.waitUntilIdle()
+        #expect(harness.windowVisible)
+        guard case .problem? = harness.model.notice else { Issue.record("expected the shrink problem"); return }
     }
 
     @Test func aCaptureBringsBackAWindowThatWasOpen() async throws {

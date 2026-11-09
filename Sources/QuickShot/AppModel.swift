@@ -76,7 +76,8 @@ final class AppModel {
     /// Shrinks a Quick recording. Injectable: tests use a stand-in.
     @ObservationIgnored var shrink: @Sendable (URL) async throws -> URL = { try await MovieShrinker.shrink($0) }
     /// Tells the person a capture was saved, without raising the window.
-    @ObservationIgnored var notify: @MainActor (CaptureItem) -> Void = { _ in }
+    /// Returns `false` when it could not, so the window is shown instead.
+    @ObservationIgnored var notify: @MainActor (CaptureItem) async -> Bool = { _ in false }
     /// Records one app or window. Injectable: tests use a stand-in.
     @ObservationIgnored var appRecorder: any AppRecording = WindowRecorder()
     /// One second of the countdown. Tests shorten it.
@@ -366,17 +367,23 @@ final class AppModel {
         case .captured(let files):
             let outcome = CaptureFiler.fileAll(files, into: library.directory)
             reload()
-            if let newest = outcome.filed.last {
-                selection = newest.lastPathComponent
-                if let item = selectedItem { notify(item) }
-            }
             if !outcome.problems.isEmpty {
                 let earlier: [String] = if case .problem(let text)? = notice { [text] } else { [] }
                 notice = .problem((earlier + outcome.problems).joined(separator: " "))
             }
-            // The notification says it was saved; the window comes back only
-            // where it was, or when there is a problem to read.
-            if libraryWasVisible || !outcome.problems.isEmpty { showLibrary() }
+            let hasProblem: Bool = if case .problem? = notice { true } else { false }
+            let item = outcome.filed.last.flatMap { newest in
+                selection = newest.lastPathComponent
+                return selectedItem
+            }
+            // The window comes back where it was, or when there is a problem
+            // to read. Otherwise the notification says it was saved; if that
+            // cannot reach the person, the window does.
+            if libraryWasVisible || hasProblem {
+                showLibrary()
+            } else if let item {
+                Task { if await !notify(item) { showLibrary() } }
+            }
         case .cancelled:
             notice = .nothingSaved
             if libraryWasVisible { showLibrary() }

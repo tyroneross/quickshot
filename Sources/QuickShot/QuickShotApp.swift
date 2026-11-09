@@ -94,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.showLibrary = { [weak self] in self?.showLibrary() }
         model.hideLibrary = { [weak self] in self?.window?.orderOut(nil) }
         model.isLibraryVisible = { [weak self] in self?.window?.isVisible ?? false }
-        model.notify = { [weak self] item in self?.notifier.notify(item) }
+        model.notify = { [weak self] item in await self?.notifier.notify(item) ?? false }
         notifier.open = { [weak self] id in
             guard let self else { return }
             model.selection = id

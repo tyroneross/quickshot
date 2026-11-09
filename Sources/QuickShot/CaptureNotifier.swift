@@ -24,29 +24,57 @@ final class CaptureNotifier: NSObject, UNUserNotificationCenterDelegate {
         center?.delegate = self
     }
 
-    func notify(_ item: CaptureItem) {
-        guard let center else { return }
+    /// Returns `false` when the person will not see a notification (not
+    /// allowed, or the system refused it), so the caller can show the window
+    /// instead: a saved capture always gives a signal.
+    func notify(_ item: CaptureItem) async -> Bool {
+        guard let center else { return false }
         if !asked {
             asked = true
-            center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+            _ = try? await center.requestAuthorization(options: [.alert, .sound])
         }
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return false }
         let content = UNMutableNotificationContent()
         content.title = item.kind == .image ? "Screenshot saved" : "Recording saved"
         content.body = "\(item.url.lastPathComponent) is in QuickShot. Click to see it."
         content.categoryIdentifier = Self.category
         content.userInfo = [Self.itemKey: item.id]
-        if let attachment = Self.attachment(for: item) { content.attachments = [attachment] }
-        center.add(UNNotificationRequest(identifier: item.id, content: content, trigger: nil))
+        let copy = Self.attachmentCopy(for: item)
+        if let copy, let attachment = try? UNNotificationAttachment(identifier: item.id, url: copy) {
+            content.attachments = [attachment]
+        }
+        do {
+            try await center.add(UNNotificationRequest(identifier: item.id, content: content, trigger: nil))
+        } catch {
+            // The system took the attachment, or never did; either way the copy
+            // is not wanted any more.
+            if let copy { try? FileManager.default.removeItem(at: copy) }
+            return false
+        }
+        if let copy { try? FileManager.default.removeItem(at: copy) }
+        return true
+    }
+
+    /// What the system accepts as a notification attachment (Apple's limits:
+    /// 10 MB for an image, 50 MB for a movie).
+    static func attachmentLimit(for kind: CaptureKind) -> Int {
+        switch kind {
+        case .image: 10 * 1024 * 1024
+        case .video: 50 * 1024 * 1024
+        }
     }
 
     /// The system moves an attachment into its own store, so it gets a copy,
-    /// never the capture itself.
-    private static func attachment(for item: CaptureItem) -> UNNotificationAttachment? {
+    /// never the capture itself; and no copy at all when it would be refused.
+    private static func attachmentCopy(for item: CaptureItem) -> URL? {
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: item.url.path))?[.size] as? Int,
+              size <= attachmentLimit(for: item.kind) else { return nil }
         let copy = FileManager.default.temporaryDirectory
             .appendingPathComponent("QuickShot-notification-\(UUID().uuidString)")
             .appendingPathExtension(item.url.pathExtension)
         guard (try? FileManager.default.copyItem(at: item.url, to: copy)) != nil else { return nil }
-        return try? UNNotificationAttachment(identifier: item.id, url: copy)
+        return copy
     }
 
     nonisolated func userNotificationCenter(
