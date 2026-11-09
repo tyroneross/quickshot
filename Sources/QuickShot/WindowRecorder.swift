@@ -72,6 +72,12 @@ final class WindowRecorder: NSObject, AppRecording {
             settle(session, .failed("Could not start recording the window: \(error.localizedDescription)"))
             return await outcome(of: session)
         }
+        if session.result != nil {
+            // The output failed while the stream was starting: the stream is
+            // up now, so take it down before reporting.
+            try? await stream.stopCapture()
+            return await outcome(of: session)
+        }
         session.isRecording = true
         // A cancel that arrived while starting is honoured now.
         if session.cancelled { await end(session, keep: false) }
@@ -86,6 +92,9 @@ final class WindowRecorder: NSObject, AppRecording {
 
     func cancel() {
         guard let session else { return }
+        // After Stop the file is being finished for keeping; a cancel now
+        // would throw away what the person asked to keep.
+        guard session.result == nil, session.isRecording || session.stream == nil else { return }
         session.cancelled = true
         session.pickerWaiter?.resume(returning: nil)
         session.pickerWaiter = nil
@@ -135,35 +144,48 @@ final class WindowRecorder: NSObject, AppRecording {
         configuration.allowedPickerModes = [.singleWindow, .singleApplication]
         configuration.allowsChangingSelectedContent = false
         picker.defaultConfiguration = configuration
-        picker.add(self)
+        // One observer per session: a late callback from an earlier picker
+        // finds its own session closed and does nothing.
+        let observer = PickerObserver(session: session)
+        picker.add(observer)
         picker.isActive = true
         picker.present()
         let filter: UncheckedSendable<SCContentFilter>? = session.cancelled ? nil : await withCheckedContinuation { session.pickerWaiter = $0 }
+        observer.closed = true
         picker.isActive = false
-        picker.remove(self)
+        picker.remove(observer)
         return filter?.value
     }
 
-    private func pickerFinished(with filter: UncheckedSendable<SCContentFilter>?) {
-        session?.pickerWaiter?.resume(returning: filter)
-        session?.pickerWaiter = nil
-    }
-}
+    /// Hands the picker's answer to the one session it was opened for.
+    @MainActor
+    private final class PickerObserver: NSObject, SCContentSharingPickerObserver {
+        private let session: Session
+        /// Set on the main actor once the session has its answer.
+        var closed = false
+        init(session: Session) { self.session = session }
 
-extension WindowRecorder: SCContentSharingPickerObserver {
-    nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter, for stream: SCStream?) {
-        // SCContentFilter is an immutable description the system hands over;
-        // it is only read on the main actor after this.
-        let chosen = UncheckedSendable(filter)
-        Task { @MainActor in pickerFinished(with: chosen) }
-    }
+        private func finish(with filter: UncheckedSendable<SCContentFilter>?) {
+            guard !closed else { return }
+            closed = true
+            session.pickerWaiter?.resume(returning: filter)
+            session.pickerWaiter = nil
+        }
 
-    nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
-        Task { @MainActor in pickerFinished(with: nil) }
-    }
+        nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter, for stream: SCStream?) {
+            // SCContentFilter is an immutable description the system hands
+            // over; it is only read on the main actor after this.
+            let chosen = UncheckedSendable(filter)
+            Task { @MainActor [weak self] in self?.finish(with: chosen) }
+        }
 
-    nonisolated func contentSharingPickerStartDidFailWithError(_ error: any Error) {
-        Task { @MainActor in pickerFinished(with: nil) }
+        nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
+            Task { @MainActor [weak self] in self?.finish(with: nil) }
+        }
+
+        nonisolated func contentSharingPickerStartDidFailWithError(_ error: any Error) {
+            Task { @MainActor [weak self] in self?.finish(with: nil) }
+        }
     }
 }
 
@@ -183,7 +205,9 @@ extension WindowRecorder: SCStreamDelegate, SCRecordingOutputDelegate {
         let which = UncheckedSendable(recordingOutput)
         Task { @MainActor in
             guard let session, session.recordingOutput === which.value, session.result == nil else { return }
-            if FileManager.default.fileExists(atPath: session.output.path) {
+            if session.cancelled {
+                settle(session, .cancelled)
+            } else if FileManager.default.fileExists(atPath: session.output.path) {
                 settle(session, .captured([session.output]))
             } else {
                 settle(session, .failed("The window recording was not written."))

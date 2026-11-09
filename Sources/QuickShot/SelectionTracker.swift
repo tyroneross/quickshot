@@ -18,11 +18,13 @@ final class SelectionTracker {
         pressed = nil
         released = nil
         monitors = [
+            // The position is read in the callback itself, before the pointer
+            // can move on. Global monitors are delivered on the main thread.
             NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
-                Task { @MainActor in self?.pressed = NSEvent.mouseLocation }
+                MainActor.assumeIsolated { self?.pressed = NSEvent.mouseLocation }
             },
             NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
-                Task { @MainActor in self?.released = NSEvent.mouseLocation }
+                MainActor.assumeIsolated { self?.released = NSEvent.mouseLocation }
             },
         ].compactMap { $0 }
     }

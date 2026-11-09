@@ -9,15 +9,16 @@ enum CaptureFlash {
     static let borderSeconds: TimeInterval = 0.5
     static let borderWidth: CGFloat = 4
 
-    /// Frames each screen.
+    /// Frames each screen. The border sits inside the screen, where it can
+    /// be seen.
     static func showScreens(reduceMotion: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) {
-        for screen in NSScreen.screens { show(around: screen.frame, reduceMotion: reduceMotion) }
+        for screen in NSScreen.screens { show(around: screen.frame, inside: true, reduceMotion: reduceMotion) }
     }
 
-    /// Frames one rectangle in screen coordinates. The border sits just
-    /// outside the rectangle, so the picture itself is not covered.
-    static func show(around rect: NSRect, reduceMotion: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) {
-        let frame = rect.insetBy(dx: -borderWidth, dy: -borderWidth)
+    /// Frames one rectangle in screen coordinates. By default the border sits
+    /// just outside the rectangle, so the picture itself is not covered.
+    static func show(around rect: NSRect, inside: Bool = false, reduceMotion: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) {
+        let frame = inside ? rect : rect.insetBy(dx: -borderWidth, dy: -borderWidth)
         let window = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.level = .screenSaver
         window.ignoresMouseEvents = true
