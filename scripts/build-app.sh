@@ -3,6 +3,7 @@
 #
 #   scripts/build-app.sh              build into build/QuickShot.app
 #   scripts/build-app.sh --install    also copy it to /Applications
+#                                     (QUICKSHOT_INSTALL_DIR overrides the folder)
 #
 # Signing is ad-hoc by default, which never touches the Keychain. macOS ties a
 # Screen Recording grant to the exact build of an ad-hoc app, so each rebuild
@@ -29,7 +30,7 @@ codesign --verify --strict "$APP"
 echo "Built $APP"
 
 if [[ "${1:-}" == "--install" ]]; then
-    DEST="/Applications/QuickShot.app"
+    DEST="${QUICKSHOT_INSTALL_DIR:-/Applications}/QuickShot.app"
     if pgrep -xq QuickShot; then
         echo "QuickShot is running. Quit it, then run this again." >&2
         exit 1
@@ -37,9 +38,14 @@ if [[ "${1:-}" == "--install" ]]; then
     # Stage the new copy first, so a failed copy never costs the working app.
     STAGED="$DEST.installing"
     PREVIOUS="$DEST.previous"
-    rm -rf "$STAGED" "$PREVIOUS"
+    # An earlier install interrupted mid-swap left the working app parked as
+    # .previous. Put it back before doing anything else.
+    if [[ ! -e "$DEST" && -e "$PREVIOUS" ]]; then mv "$PREVIOUS" "$DEST"; fi
+    rm -rf "$STAGED"
     cp -R "$APP" "$STAGED"
     codesign --verify --strict "$STAGED"
+    # Only now, with a verified replacement staged, is an old parked copy redundant.
+    rm -rf "$PREVIOUS"
     if [[ -e "$DEST" ]]; then mv "$DEST" "$PREVIOUS"; fi
     if ! mv "$STAGED" "$DEST"; then
         if [[ -e "$PREVIOUS" ]]; then mv "$PREVIOUS" "$DEST"; fi

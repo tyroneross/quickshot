@@ -43,10 +43,11 @@ public final class CaptureRunner: @unchecked Sendable {
     public func run(_ mode: CaptureMode) async -> CaptureResult? {
         let id = UUID().uuidString
         let scratch = scratchRoot.appendingPathComponent("QuickShot-\(id)", isDirectory: true)
-        // The tool's messages go to a file, not a pipe: a pipe that fills up
-        // would block the tool and the capture would never finish.
-        let errorLog = scratchRoot.appendingPathComponent("QuickShot-\(id).stderr")
         let process = Process()
+        // The tool's messages are drained while it runs, so a noisy tool can
+        // neither block on a full pipe nor fill the disk. Only the start is kept.
+        let errorPipe = Pipe()
+        let errorText = BoundedText(limit: Self.messageLimit)
 
         let claimed = lock.withLock { () -> Bool in
             guard current == nil else { return false }
@@ -59,19 +60,15 @@ public final class CaptureRunner: @unchecked Sendable {
         defer { lock.withLock { current = nil; launched = false } }
         if Task.isCancelled { return .cancelled }
 
-        let fileManager = FileManager.default
         do {
-            try fileManager.createDirectory(at: scratch, withIntermediateDirectories: true)
-            guard fileManager.createFile(atPath: errorLog.path, contents: nil) else {
-                throw CocoaError(.fileWriteUnknown)
-            }
-            process.standardError = try FileHandle(forWritingTo: errorLog)
+            try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         } catch {
-            rmdir(scratch.path)
-            try? fileManager.removeItem(at: errorLog)
-            return .failed("Could not prepare scratch space in \(scratchRoot.path): \(error.localizedDescription)")
+            return .failed("Could not create a scratch folder in \(scratchRoot.path): \(error.localizedDescription)")
         }
-        defer { try? fileManager.removeItem(at: errorLog) }
+        let errorReader = errorPipe.fileHandleForReading
+        process.standardError = errorPipe
+        errorReader.readabilityHandler = { errorText.append($0.availableData) }
+        defer { errorReader.readabilityHandler = nil }
 
         let output = scratch.appendingPathComponent(CaptureCommand.requestedFileName(for: mode))
         process.executableURL = executable
@@ -116,7 +113,9 @@ public final class CaptureRunner: @unchecked Sendable {
         // Nothing was captured. `rmdir` removes only an empty folder, so this
         // cleanup cannot take a file with it.
         rmdir(scratch.path)
-        let message = Self.message(from: errorLog)
+        errorReader.readabilityHandler = nil
+        errorText.append(Self.remainingBytes(of: errorReader))
+        let message = errorText.text
         return message.isEmpty ? .cancelled : .failed(message)
     }
 
@@ -159,13 +158,42 @@ public final class CaptureRunner: @unchecked Sendable {
         return captures.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    /// The start of what the tool wrote to standard error, enough for a notice.
+    /// How much of the tool's error output is kept for a notice.
     static let messageLimit = 2_000
 
-    static func message(from errorLog: URL) -> String {
-        guard let handle = try? FileHandle(forReadingFrom: errorLog) else { return "" }
-        defer { try? handle.close() }
-        let data = (try? handle.read(upToCount: messageLimit)) ?? Data()
-        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Whatever is still buffered in the pipe after the tool has exited, read
+    /// without blocking so a lingering writer cannot stall the result.
+    static func remainingBytes(of handle: FileHandle) -> Data {
+        let descriptor = handle.fileDescriptor
+        _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
+        var collected = Data()
+        var chunk = [UInt8](repeating: 0, count: 4_096)
+        while collected.count < messageLimit {
+            let count = read(descriptor, &chunk, chunk.count)
+            guard count > 0 else { break }
+            collected.append(contentsOf: chunk[0..<count])
+        }
+        return collected
+    }
+}
+
+/// Keeps the first `limit` bytes appended to it and drops the rest.
+final class BoundedText: @unchecked Sendable {
+    private let limit: Int
+    private let lock = NSLock()
+    private var data = Data()
+
+    init(limit: Int) { self.limit = limit }
+
+    func append(_ more: Data) {
+        lock.withLock {
+            let room = limit - data.count
+            if room > 0 { data.append(more.prefix(room)) }
+        }
+    }
+
+    var text: String {
+        let bytes = lock.withLock { data }
+        return String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
