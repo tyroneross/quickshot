@@ -1,4 +1,5 @@
 import AppKit
+import ClipboardCore
 import QuickShotCore
 
 /// What the person can do with one capture.
@@ -22,6 +23,9 @@ enum CaptureActions {
                 entry.setData(tiff, forType: .tiff)
             }
         }
+        // Marked as QuickShot's own write, so the clipboard history does not
+        // record a capture that is already listed under Screenshots.
+        entry.setData(Data(), forType: ClipboardReader.ownWriteType)
         pasteboard.clearContents()
         return pasteboard.writeObjects([entry])
     }

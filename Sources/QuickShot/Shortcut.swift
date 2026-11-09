@@ -54,4 +54,5 @@ struct Shortcut: Sendable {
 
     static let screenshot = Shortcut(keyCode: kVK_ANSI_S, key: "s", modifiers: [.control, .shift])
     static let recording = Shortcut(keyCode: kVK_ANSI_R, key: "r", modifiers: [.control, .shift])
+    static let clipboard = Shortcut(keyCode: kVK_ANSI_V, key: "v", modifiers: [.control, .shift])
 }
