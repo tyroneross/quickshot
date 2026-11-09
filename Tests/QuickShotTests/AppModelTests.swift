@@ -134,6 +134,22 @@ import Testing
         #expect(harness.windowVisible)
     }
 
+    /// Stop pressed in the same instant as Record (a double press of the
+    /// shortcut, or quitting at once): the request must not be lost.
+    @Test func stoppingBeforeTheRecorderHasStartedLeavesNothingRunning() async throws {
+        let harness = try Harness(tool: Tool.recordsUntilInterrupted)
+        harness.model.start()
+
+        harness.model.capture(.recording)
+        harness.model.stopRecording()
+        try await harness.waitUntilIdle()
+        try await Task.sleep(for: .milliseconds(300))
+
+        #expect(harness.model.activeCapture == nil, "the recording kept going after Stop")
+        #expect(!harness.toolRan, "the recorder was started after it had been stopped")
+        #expect(harness.model.items.isEmpty)
+    }
+
     /// The record shortcut is one key for both: start, then stop.
     @Test func toggleRecordingStartsThenStops() async throws {
         let harness = try Harness(tool: Tool.recordsUntilInterrupted)

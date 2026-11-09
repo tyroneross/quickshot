@@ -212,7 +212,7 @@ import TestSupport
     }
 
     @Test func finishingWithNothingRunningDoesNothing() {
-        CaptureRunner(executable: URL(fileURLWithPath: "/usr/bin/true")).finishRecording()
+        #expect(!CaptureRunner(executable: URL(fileURLWithPath: "/usr/bin/true")).finishRecording())
     }
 
     @Test func cancelWithNothingRunningDoesNothing() async throws {

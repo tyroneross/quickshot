@@ -157,7 +157,9 @@ final class AppModel {
     /// Ends the recording in progress and keeps it.
     func stopRecording() {
         guard activeCapture == .recording else { return }
-        runner.finishRecording()
+        // Stop pressed before the recorder has started: nothing is recorded
+        // yet, so cancel it rather than lose the request.
+        if !runner.finishRecording() { captureTask?.cancel() }
     }
 
     /// Starts a recording, or stops the one in progress.
