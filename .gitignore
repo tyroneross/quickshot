@@ -1,0 +1,10 @@
+.build/
+build/
+*.app
+.DS_Store
+.build-loop/
+.bookmark/
+.navgator/
+.ibr/
+xcuserdata/
+DerivedData/
