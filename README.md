@@ -59,4 +59,8 @@ Recent macOS versions also ask from time to time whether an app may keep recordi
 
 ## Not included
 
-A built-in annotation editor, recording a chosen area or with sound, scrolling capture, cloud sharing, configurable shortcuts, launch at login, and a custom app icon.
+A built-in annotation editor, recording a chosen area or with sound, scrolling capture, cloud sharing, configurable shortcuts, and launch at login.
+
+## Logo
+
+The app icon is a camera with a lightning bolt in the lens: `design/logo/quickshot-logo.svg` (source) and `Resources/AppIcon.icns` (built from it). Two alternatives are kept beside it. To rebuild the icon from an edited SVG, render it with `design/logo/render-svg.swift` at 16 to 1024 px into an `.iconset` folder and run `iconutil -c icns`.

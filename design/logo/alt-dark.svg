@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bgD" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#27365C"/>
+      <stop offset="1" stop-color="#0A1022"/>
+    </linearGradient>
+    <linearGradient id="sheenD" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="bodyD" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#D5E3FF"/>
+    </linearGradient>
+    <linearGradient id="lensD" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#31DDF7"/>
+      <stop offset="1" stop-color="#2757E0"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bgD)"/>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#sheenD)"/>
+  <path d="M398 300 h228 a38 38 0 0 1 33 20 l30 56 h49 a66 66 0 0 1 66 66 v240 a66 66 0 0 1 -66 66 H286 a66 66 0 0 1 -66 -66 V442 a66 66 0 0 1 66 -66 h49 l30 -56 a38 38 0 0 1 33 -20 z" fill="url(#bodyD)"/>
+  <circle cx="512" cy="556" r="150" fill="url(#lensD)"/>
+  <path d="M536 446 L440 578 h62 l-18 92 96 -132 h-62 z" fill="#FFFFFF"/>
+  <circle cx="726" cy="448" r="27" fill="#FF3B30"/>
+</svg>

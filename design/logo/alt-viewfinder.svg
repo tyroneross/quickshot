@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bgA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4F9BFF"/>
+      <stop offset="1" stop-color="#1B3FA8"/>
+    </linearGradient>
+    <linearGradient id="sheenA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="dotA" cx="0.38" cy="0.34" r="0.75">
+      <stop offset="0" stop-color="#FF6A5E"/>
+      <stop offset="1" stop-color="#E5281C"/>
+    </radialGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bgA)"/>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#sheenA)"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="58" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M286 432 V326 a40 40 0 0 1 40 -40 H432"/>
+    <path d="M592 286 H698 a40 40 0 0 1 40 40 V432"/>
+    <path d="M738 592 V698 a40 40 0 0 1 -40 40 H592"/>
+    <path d="M432 738 H326 a40 40 0 0 1 -40 -40 V592"/>
+  </g>
+  <circle cx="512" cy="512" r="104" fill="#FFFFFF"/>
+  <circle cx="512" cy="512" r="78" fill="url(#dotA)"/>
+</svg>

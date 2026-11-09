@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bgC" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2FD8F5"/>
+      <stop offset="1" stop-color="#2450D6"/>
+    </linearGradient>
+    <linearGradient id="sheenC" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.24"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="bodyC" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E4EEFF"/>
+    </linearGradient>
+    <linearGradient id="lensC" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#27469E"/>
+      <stop offset="1" stop-color="#0A1640"/>
+    </linearGradient>
+    <linearGradient id="boltC" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#9FE8FF"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bgC)"/>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#sheenC)"/>
+  <!-- soft shadow under the camera -->
+  <path transform="translate(0 16)" d="M398 300 h228 a38 38 0 0 1 33 20 l30 56 h49 a66 66 0 0 1 66 66 v240 a66 66 0 0 1 -66 66 H286 a66 66 0 0 1 -66 -66 V442 a66 66 0 0 1 66 -66 h49 l30 -56 a38 38 0 0 1 33 -20 z" fill="#0B2A7A" opacity="0.22"/>
+  <path d="M398 300 h228 a38 38 0 0 1 33 20 l30 56 h49 a66 66 0 0 1 66 66 v240 a66 66 0 0 1 -66 66 H286 a66 66 0 0 1 -66 -66 V442 a66 66 0 0 1 66 -66 h49 l30 -56 a38 38 0 0 1 33 -20 z" fill="url(#bodyC)"/>
+  <circle cx="512" cy="556" r="150" fill="url(#lensC)"/>
+  <circle cx="512" cy="556" r="150" fill="none" stroke="#7FB4FF" stroke-width="10" opacity="0.55"/>
+  <path d="M536 446 L440 578 h62 l-18 92 96 -132 h-62 z" fill="url(#boltC)"/>
+  <circle cx="726" cy="448" r="27" fill="#FF3B30"/>
+</svg>
