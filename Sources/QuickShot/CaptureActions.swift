@@ -49,6 +49,12 @@ enum CaptureActions {
         NSWorkspace.shared.open(directory)
     }
 
+    /// Opens the Privacy & Security pane, where "Paste from Other Apps" lives.
+    static func openPasteboardSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     static func openScreenRecordingSettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else { return }
         NSWorkspace.shared.open(url)

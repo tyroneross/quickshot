@@ -1,4 +1,5 @@
 import AppKit
+import ClipboardCore
 import QuickShotCore
 import SwiftUI
 
@@ -8,7 +9,7 @@ struct QuickShotApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent().environment(delegate.model)
+            MenuContent(delegate: delegate).environment(delegate.model)
         } label: {
             MenuBarLabel().environment(delegate.model)
         }
@@ -26,6 +27,7 @@ struct MenuBarLabel: View {
 
 struct MenuContent: View {
     @Environment(AppModel.self) private var model
+    let delegate: AppDelegate
 
     var body: some View {
         switch model.activeCapture {
@@ -41,8 +43,14 @@ struct MenuContent: View {
                 .keyboardShortcut(Shortcut.recording.keyboardShortcut)
         }
         Divider()
-        Button("Show Library") { model.showLibrary() }
+        Button("Show Captures") { model.showLibrary() }
         Button("Open Captures Folder") { CaptureActions.openFolder(model.library.directory) }
+        if let clipboard = delegate.clipboard {
+            Divider()
+            Button("Show Clipboard") { delegate.showClipboard() }
+                .keyboardShortcut(Shortcut.clipboard.keyboardShortcut)
+            Button(clipboard.isPaused ? "Resume Clipboard History" : "Pause Clipboard History") { clipboard.togglePause() }
+        }
         Divider()
         Button("Quit QuickShot") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
@@ -52,17 +60,52 @@ struct MenuContent: View {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
+    /// The clipboard library, or `nil` when its store could not be opened.
+    private(set) var clipboard: ClipboardModel?
     private let hotKeys = HotKeyCenter()
     private var window: NSWindow?
+    private var clipboardWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.showLibrary = { [weak self] in self?.showLibrary() }
         model.hideLibrary = { [weak self] in self?.window?.orderOut(nil) }
         model.isLibraryVisible = { [weak self] in self?.window?.isVisible ?? false }
         model.start()
+        startClipboard()
         registerHotKeys()
         showLibrary()
     }
+
+    private func startClipboard() {
+        do {
+            let store = try ClipStore(directory: ClipStore.defaultDirectory)
+            let clipboard = ClipboardModel(store: store, captures: { [model] in model.items })
+            clipboard.start()
+            self.clipboard = clipboard
+        } catch {
+            model.notice = .problem("Clipboard history is off: its store could not be opened (\(error.localizedDescription)).")
+        }
+    }
+
+    func showClipboard() {
+        guard let clipboard else { return }
+        if clipboardWindow == nil { clipboardWindow = ClipboardWindow.make(model: clipboard) }
+        NSApp.activate()
+        clipboardWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Show Captures", action: #selector(showCapturesFromDock), keyEquivalent: "")
+        if clipboard != nil {
+            menu.addItem(withTitle: "Show Clipboard", action: #selector(showClipboardFromDock), keyEquivalent: "")
+        }
+        menu.items.forEach { $0.target = self }
+        return menu
+    }
+
+    @objc private func showCapturesFromDock() { showLibrary() }
+    @objc private func showClipboardFromDock() { showClipboard() }
 
     func applicationDidBecomeActive(_ notification: Notification) {
         model.refreshAccess()
@@ -104,13 +147,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func registerHotKeys() {
         // The record shortcut starts a recording and, pressed again, stops it.
-        let bindings: [(Shortcut, @MainActor (AppModel) -> Void)] = [
-            (.screenshot, { $0.capture(.screenshot) }),
-            (.recording, { $0.toggleRecording() }),
+        let bindings: [(Shortcut, @MainActor (AppDelegate) -> Void)] = [
+            (.screenshot, { $0.model.capture(.screenshot) }),
+            (.recording, { $0.model.toggleRecording() }),
+            (.clipboard, { $0.showClipboard() }),
         ]
         let unavailable = bindings.compactMap { shortcut, action -> String? in
             let registered = hotKeys.register(keyCode: shortcut.keyCode, modifiers: shortcut.carbonModifiers) { [weak self] in
-                if let model = self?.model { action(model) }
+                if let self { action(self) }
             }
             return registered ? nil : shortcut.words
         }
