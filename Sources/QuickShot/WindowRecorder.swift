@@ -32,6 +32,9 @@ final class WindowRecorder: NSObject, AppRecording {
         var recordingOutput: SCRecordingOutput?
         var isRecording = false
         var cancelled = false
+        /// Stop was pressed: the file is being finished for keeping, and a
+        /// cancel from now on is too late.
+        var keeping = false
         /// The result, once known. Set exactly once; read when awaited.
         var result: CaptureResult?
         var waiter: CheckedContinuation<CaptureResult, Never>?
@@ -87,14 +90,16 @@ final class WindowRecorder: NSObject, AppRecording {
     func stop() {
         guard let session else { return }
         guard session.isRecording else { cancel(); return }
+        session.keeping = true
         Task { await end(session, keep: true) }
     }
 
     func cancel() {
         guard let session else { return }
         // After Stop the file is being finished for keeping; a cancel now
-        // would throw away what the person asked to keep.
-        guard session.result == nil, session.isRecording || session.stream == nil else { return }
+        // would throw away what the person asked to keep. Before that,
+        // including while the stream is still starting, cancel wins.
+        guard session.result == nil, !session.keeping else { return }
         session.cancelled = true
         session.pickerWaiter?.resume(returning: nil)
         session.pickerWaiter = nil

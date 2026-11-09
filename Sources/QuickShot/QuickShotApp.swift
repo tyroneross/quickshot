@@ -239,7 +239,30 @@ enum LibraryWindow {
         window.contentMinSize = NSSize(width: Layout.windowWidth, height: Layout.captureBarHeight)
         window.center()
         window.setFrameAutosaveName("QuickShotLibrary")
+        // Content-sized until the person resizes or zooms it; after that the
+        // size is theirs, and the content fills whatever they chose.
+        let sizing = SizingHandoff(hosting: hosting)
+        window.delegate = sizing
+        objc_setAssociatedObject(window, &SizingHandoff.key, sizing, .OBJC_ASSOCIATION_RETAIN)
         return window
+    }
+
+    /// Stops the automatic content sizing the first time the person takes
+    /// the window's size into their own hands.
+    final class SizingHandoff: NSObject, NSWindowDelegate {
+        nonisolated(unsafe) static var key = 0
+        private let handOver: () -> Void
+        init<Content: View>(hosting: NSHostingController<Content>) {
+            handOver = { hosting.sizingOptions = [] }
+        }
+
+        func windowWillStartLiveResize(_ notification: Notification) { handOver() }
+
+        /// The green button: fill the screen the window is on.
+        func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame: NSRect) -> NSRect {
+            handOver()
+            return window.screen?.visibleFrame ?? defaultFrame
+        }
     }
 }
 
