@@ -171,10 +171,12 @@ import Testing
         try await harness.waitUntil { harness.toolRan }
         #expect(harness.model.isCapturing)
 
+        // An unrelated notice must not sit under the recording status.
+        harness.model.notice = .nothingSaved
         let rep = try await Self.render(harness.model, size: Self.compact, name: "4-capturing")
         harness.model.cancelCapture()
         try await harness.waitUntilIdle()
-        #expect(try Self.noticeTone(rep) == .info, "the capture-in-progress strip was not drawn")
+        #expect(try Self.noticeTone(rep) == nil, "a notice strip was drawn while a capture is running")
     }
 
     @Test func nothingSavedNotice() async throws {

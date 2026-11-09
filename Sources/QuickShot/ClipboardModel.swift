@@ -6,7 +6,7 @@ import QuickShotCore
 /// A place in the library's sidebar.
 enum LibrarySection: Hashable {
     case history
-    case screenshots
+    case captures
     case collection(Int64)
 }
 
@@ -151,7 +151,7 @@ final class ClipboardModel {
     }
 
     var entries: [LibraryEntry] {
-        guard section == .screenshots else { return clips.map(LibraryEntry.clip) }
+        guard section == .captures else { return clips.map(LibraryEntry.clip) }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         return captures()
             .filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
@@ -179,7 +179,7 @@ final class ClipboardModel {
             switch section {
             case .history: clips = try store.items(in: .history, matching: searchText)
             case .collection(let id): clips = try store.items(in: .collection(id), matching: searchText)
-            case .screenshots: clips = []
+            case .captures: clips = []
             }
         }
         if case .collection(let id) = section, !collections.contains(where: { $0.id == id }) {
@@ -273,6 +273,13 @@ final class ClipboardModel {
             try store.remove(item, from: collection)
         }
         reload()
+    }
+
+    /// Whether deleting the entry also takes it out of a collection, where the
+    /// person put it to keep it. That deserves a confirmation.
+    func deletionRemovesSavedItem(_ entry: LibraryEntry) -> Bool {
+        guard case .clip = entry else { return false }
+        return !collectionIDs(for: entry).isEmpty
     }
 
     /// Removes a copied item from history and every collection. Captures are

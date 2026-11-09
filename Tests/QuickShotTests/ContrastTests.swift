@@ -63,6 +63,17 @@ import Testing
         }
     }
 
+    /// The warning notice's action is a solid amber button with a dark label.
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func theWarningActionLabelIsReadableOnAmber(appearanceName: NSAppearance.Name) throws {
+        let appearance = try #require(NSAppearance(named: appearanceName))
+        let amber = Self.resolve(NSColor(Banner.Tone.warning.color), in: appearance).rgb
+        let label = Self.resolve(NSColor(Palette.onWarning), in: appearance).rgb
+        let white = Self.RGB(r: 1, g: 1, b: 1)
+        print("contrast \(appearanceName.rawValue) warning button: label \(String(format: "%.2f", Self.contrast(label, amber))), white would be \(String(format: "%.2f", Self.contrast(white, amber)))")
+        #expect(Self.contrast(label, amber) >= 4.5)
+    }
+
     /// Why the views do not use the system secondary colour: on a light
     /// window it measures under 4.5:1. If this starts failing, the system
     /// colour has become usable and the custom strength can go.

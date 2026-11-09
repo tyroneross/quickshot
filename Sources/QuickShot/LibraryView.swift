@@ -3,8 +3,6 @@ import SwiftUI
 
 /// Interface wording shared by the window, the menu and the tooltips.
 enum Copy {
-    static let choosing = "Drag to choose an area, or press Space to pick a window. Escape cancels."
-    static let recording = "Recording the screen. Stop it here, from the QuickShot menu bar item, or by pressing \(Shortcut.recording.words)."
     static let permission = "QuickShot needs Screen Recording permission before it can capture. Turn it on in System Settings, then quit and reopen QuickShot."
     static let nothingSaved = "Nothing was saved. The capture was cancelled, or sent to the clipboard by holding Control."
 }
@@ -38,6 +36,8 @@ enum Palette {
     static let supportingTextOpacity = 0.72
     /// Selection and banner backgrounds are a colour at this strength.
     static let tintOpacity = 0.12
+    /// Label colour on a solid warning (amber) button.
+    static let onWarning = Color.black
 }
 
 extension Color {
@@ -50,9 +50,8 @@ struct LibraryView: View {
     var body: some View {
         VStack(spacing: 0) {
             CaptureBar()
-            if let active = model.activeCapture {
-                Banner(tone: .info, text: active == .recording ? Copy.recording : Copy.choosing)
-            } else if let notice = model.notice {
+            // While a capture runs, the bar itself says what is happening.
+            if model.activeCapture == nil, let notice = model.notice {
                 NoticeBanner(notice: notice)
             }
             if model.items.isEmpty {
@@ -65,10 +64,10 @@ struct LibraryView: View {
         .frame(minWidth: Layout.windowWidth, idealWidth: Layout.windowWidth, maxWidth: .infinity,
                maxHeight: .infinity, alignment: .top)
         .toolbar {
-            if let item = model.selectedItem {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    ItemActions(item: item, inToolbar: true)
-                }
+            // Always present, greyed out with nothing selected: a title bar
+            // that appears on selection would push every card down.
+            ToolbarItemGroup(placement: .primaryAction) {
+                ItemActions(item: model.selectedItem, inToolbar: true)
             }
         }
     }
@@ -83,9 +82,7 @@ struct CaptureBar: View {
             switch model.activeCapture {
             case .recording:
                 Circle().fill(.red).frame(width: 10, height: 10).accessibilityHidden(true)
-                Text("Recording")
-                    .font(.headline)
-                    .accessibilityIdentifier("capture-status")
+                CaptureStatus(title: "Recording", hint: "\(Shortcut.recording.words) also stops it")
                 Spacer(minLength: Layout.spacing)
                 Button("Stop Recording", systemImage: "stop.circle.fill") { model.stopRecording() }
                     .labelStyle(.titleAndIcon)
@@ -93,9 +90,7 @@ struct CaptureBar: View {
                     .help("Stop and save the recording (\(Shortcut.recording.words))")
                     .accessibilityIdentifier("stop-recording")
             case .screenshot:
-                Text("Choosing an area")
-                    .font(.headline)
-                    .accessibilityIdentifier("capture-status")
+                CaptureStatus(title: "Choosing an area", hint: "Space picks a window. Escape cancels")
                 Spacer(minLength: Layout.spacing)
                 Button("Cancel", systemImage: "xmark.circle") { model.cancelCapture() }
                     .labelStyle(.titleAndIcon)
@@ -117,6 +112,24 @@ struct CaptureBar: View {
         }
         .padding(Layout.padding)
         .frame(height: Layout.captureBarHeight)
+    }
+}
+
+/// What is happening during a capture, with the one thing worth knowing.
+struct CaptureStatus: View {
+    let title: String
+    let hint: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.headline)
+            Text(hint)
+                .font(.subheadline)
+                .foregroundStyle(Color.supportingText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("capture-status")
     }
 }
 
@@ -158,36 +171,44 @@ struct TileButtonStyle: ButtonStyle {
 }
 
 /// The four things to do with one capture. In the title bar they are plain
-/// symbols with tooltips so the window can stay narrow; in the context menu
-/// the same actions carry their names.
+/// symbols with tooltips so the window can stay narrow, and they stay in place
+/// (greyed out) with nothing selected; in the context menu the same actions
+/// carry their names.
 struct ItemActions: View {
     @Environment(AppModel.self) private var model
-    let item: CaptureItem
+    let item: CaptureItem?
     var inToolbar = false
 
     var body: some View {
-        let copied = model.copiedItem == item.id
+        let copied = item != nil && model.copiedItem == item?.id
+        let isVideo = item?.kind == .video
         Group {
-            Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") { model.copy(item) }
-                .keyboardShortcut(inToolbar ? KeyboardShortcut("c", modifiers: .command) : nil)
-                .help("Copy to the clipboard")
-                .accessibilityIdentifier("copy-capture")
-            Button(item.kind == .image ? "Annotate" : "Open",
-                   systemImage: item.kind == .image ? "pencil.tip.crop.circle" : "play.rectangle") {
-                CaptureActions.open(item)
+            Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") {
+                if let item { model.copy(item) }
+            }
+            .keyboardShortcut(inToolbar ? KeyboardShortcut("c", modifiers: .command) : nil)
+            .help("Copy to the clipboard")
+            .accessibilityIdentifier("copy-capture")
+            Button(isVideo ? "Open" : "Annotate", systemImage: isVideo ? "play.rectangle" : "pencil.tip.crop.circle") {
+                if let item { CaptureActions.open(item) }
             }
             .keyboardShortcut(inToolbar ? KeyboardShortcut(.return, modifiers: .command) : nil)
-            .help(item.kind == .image ? "Annotate in Preview" : "Open in QuickTime Player")
+            .help(isVideo ? "Open in QuickTime Player" : "Annotate in Preview")
             .accessibilityIdentifier("open-capture")
-            Button("Show in Finder", systemImage: "folder") { CaptureActions.reveal(item) }
-                .help("Show in Finder")
-                .accessibilityIdentifier("reveal-capture")
-            Button("Move to Trash", systemImage: "trash") { model.trash(item) }
-                .keyboardShortcut(inToolbar ? KeyboardShortcut(.delete, modifiers: .command) : nil)
-                .help("Move to Trash")
-                .accessibilityIdentifier("trash-capture")
+            Button("Show in Finder", systemImage: "folder") {
+                if let item { CaptureActions.reveal(item) }
+            }
+            .help("Show in Finder")
+            .accessibilityIdentifier("reveal-capture")
+            Button("Move to Trash", systemImage: "trash") {
+                if let item { model.trash(item) }
+            }
+            .keyboardShortcut(inToolbar ? KeyboardShortcut(.delete, modifiers: .command) : nil)
+            .help("Move to Trash")
+            .accessibilityIdentifier("trash-capture")
         }
         .labelStyle(ToolbarOrMenuLabelStyle(iconOnly: inToolbar))
+        .disabled(item == nil)
     }
 }
 
@@ -370,8 +391,17 @@ struct Banner: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("\(tone.word). \(text)")
                 if let actionTitle, let action {
-                    Button(actionTitle, action: action)
-                        .accessibilityIdentifier("notice-action")
+                    // A warning's action takes the warning's colour. Black on
+                    // amber is measured in ContrastTests; white would fail.
+                    if tone == .warning {
+                        Button(action: action) { Text(actionTitle).foregroundStyle(Palette.onWarning) }
+                            .buttonStyle(.borderedProminent)
+                            .tint(tone.color)
+                            .accessibilityIdentifier("notice-action")
+                    } else {
+                        Button(actionTitle, action: action)
+                            .accessibilityIdentifier("notice-action")
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -386,7 +416,7 @@ struct Banner: View {
             }
         }
         .padding(.vertical, 8)
-        .padding(.leading, Layout.padding + 4)
+        .padding(.leading, Layout.padding)
         .padding(.trailing, Layout.padding)
         .background(tone.color.opacity(Palette.tintOpacity))
         .overlay(alignment: .leading) {

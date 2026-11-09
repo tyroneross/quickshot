@@ -180,7 +180,7 @@ enum LibraryWindow {
         hosting.sceneBridgingOptions = [.toolbars]
         hosting.sizingOptions = [.preferredContentSize]
         let window = NSWindow(contentViewController: hosting)
-        window.title = "QuickShot"
+        window.title = "Captures"
         // The narrow title bar is given to the item actions; the name stays
         // available to the window list and to assistive technology.
         window.titleVisibility = .hidden

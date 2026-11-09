@@ -14,6 +14,8 @@ enum LibraryLayout {
     /// Long text is wrapped at this width so lines stay readable.
     static let readableWidth: CGFloat = 640
     static let thumbnail: CGFloat = 28
+    /// Row thumbnails are decoded at this many pixels, once, then cached.
+    static let thumbnailPixels = 96
 }
 
 /// Sidebar, list and detail pane for everything copied and captured.
@@ -24,6 +26,8 @@ struct ClipboardLibraryView: View {
     @State private var draftName = ""
     /// The entry waiting to join the collection being named, if any.
     @State private var pendingEntry: LibraryEntry?
+    /// A status notice the person closed; it returns when the status changes.
+    @State private var dismissedStatus: LibraryStatus?
 
     var body: some View {
         @Bindable var model = model
@@ -38,14 +42,13 @@ struct ClipboardLibraryView: View {
                 entryList
             }
             .frame(minWidth: LibraryLayout.list.min, idealWidth: LibraryLayout.list.ideal, maxWidth: LibraryLayout.list.max)
-            LibraryDetail(newCollection: { entry in
-                pendingEntry = entry
-                draftName = ""
-                namingCollection = true
-            })
-            .frame(minWidth: LibraryLayout.detailMinWidth, maxWidth: .infinity)
+            LibraryDetail(newCollection: nameCollection)
+                .frame(minWidth: LibraryLayout.detailMinWidth, maxWidth: .infinity)
         }
         .frame(minWidth: LibraryLayout.minimumSize.width, minHeight: LibraryLayout.minimumSize.height)
+        .onChange(of: model.status) { _, new in
+            if new != dismissedStatus { dismissedStatus = nil }
+        }
         .alert("New Collection", isPresented: $namingCollection) {
             TextField("Name", text: $draftName)
             Button("Create") {
@@ -68,12 +71,21 @@ struct ClipboardLibraryView: View {
         }
     }
 
+    /// Asks for a name; `entry`, if given, joins the new collection.
+    private func nameCollection(for entry: LibraryEntry?) {
+        pendingEntry = entry
+        draftName = ""
+        namingCollection = true
+    }
+
     private var sidebar: some View {
         List(selection: Binding(get: { Optional(model.section) }, set: { if let new = $0 { model.section = new } })) {
             Section {
                 Label("History", systemImage: "clock").tag(LibrarySection.history)
-                Label("Screenshots", systemImage: "camera").tag(LibrarySection.screenshots)
+                // Screenshots and recordings alike, so the word is "Captures".
+                Label("Captures", systemImage: "camera").tag(LibrarySection.captures)
             }
+            .listRowSeparator(.hidden)
             Section("Collections") {
                 ForEach(model.collections) { collection in
                     Label(collection.name, systemImage: "folder")
@@ -86,33 +98,30 @@ struct ClipboardLibraryView: View {
                             Button("Delete Collection") { model.delete(collection) }
                         }
                 }
-                Button("New Collection", systemImage: "plus") {
-                    pendingEntry = nil
-                    draftName = ""
-                    namingCollection = true
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.supportingText)
-                .accessibilityIdentifier("new-collection")
+                Button("New Collection", systemImage: "plus") { nameCollection(for: nil) }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.supportingText)
+                    .accessibilityIdentifier("new-collection")
             }
+            .listRowSeparator(.hidden)
         }
-        // The inset style draws a plain selection that needs no window material.
+        // The inset style draws a plain selection that needs no window
+        // material; a faint tone sets the sidebar apart from the list.
         .listStyle(.inset)
+        .scrollContentBackground(.hidden)
+        .background(Color.primary.opacity(Palette.tintOpacity / 2))
     }
 
     @ViewBuilder private var notices: some View {
-        if model.monitorState == .blocked {
-            Banner(tone: .warning,
-                   text: "macOS is set to deny QuickShot the clipboard, so new copies are not recorded. Allow it under Paste from Other Apps.",
-                   actionTitle: "Open Settings", action: CaptureActions.openPasteboardSettings)
-        } else if model.isPaused {
-            Banner(tone: .info, text: "Clipboard history is paused. New copies are not recorded.",
-                   actionTitle: "Resume", action: { model.togglePause() })
+        if let status = model.status, status != dismissedStatus {
+            Banner(tone: status == .blocked ? .warning : .info, text: status.message,
+                   actionTitle: status.actionTitle,
+                   action: { status == .blocked ? CaptureActions.openPasteboardSettings() : model.togglePause() },
+                   onDismiss: { dismissedStatus = status })
         }
-        if let problem = model.problem {
+        // With an item selected, problems show beside its actions instead.
+        if model.selectedEntry == nil, let problem = model.problem {
             Banner(tone: .error, text: problem, onDismiss: { model.problem = nil })
-        } else if let receipt = model.receipt {
-            Banner(tone: .info, text: receipt, onDismiss: { model.dismissReceipt() })
         }
     }
 
@@ -126,7 +135,7 @@ struct ClipboardLibraryView: View {
                 EntryRow(entry: entry)
                     .tag(entry.id)
                     .onDrag { DragPayload.provider(for: entry, store: model.store) }
-                    .contextMenu { EntryActions(entry: entry, newCollection: { pendingEntry = $0; draftName = ""; namingCollection = true }) }
+                    .contextMenu { EntryActions(entry: entry, newCollection: nameCollection) }
             }
             .listStyle(.inset)
         }
@@ -136,8 +145,12 @@ struct ClipboardLibraryView: View {
         let query = model.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty { return "Nothing matches \u{201C}\(query)\u{201D}." }
         switch model.section {
-        case .history: return "Nothing copied yet. Copy text, an image or a file in any app and it appears here."
-        case .screenshots: return "No captures yet. Press \(Shortcut.screenshot.words) to take a screenshot."
+        case .history:
+            // While copies are not being recorded, do not promise that they will appear.
+            return model.status == nil
+                ? "Nothing copied yet. Copy text, an image or a file in any app and it appears here."
+                : "Nothing copied yet."
+        case .captures: return "No captures yet. Press \(Shortcut.screenshot.words) to take a screenshot."
         case .collection: return "This collection is empty. Select an item in History and choose Add to Collection."
         }
     }
@@ -182,9 +195,9 @@ struct EmptyLibraryHint: View {
     }
 }
 
-/// One line per item: a small picture or symbol, the title, and the time.
+/// One item: a small picture or symbol, the title on its own line, then what
+/// it is and when.
 struct EntryRow: View {
-    @Environment(ClipboardModel.self) private var model
     let entry: LibraryEntry
 
     var body: some View {
@@ -218,7 +231,8 @@ struct EntryThumbnail: View {
     var body: some View {
         switch entry {
         case .clip(let item):
-            if let url = model.store.imageURL(for: item), let image = NSImage(contentsOf: url) {
+            if let url = model.store.imageURL(for: item),
+               let image = ThumbnailCache.image(for: url, maxPixels: LibraryLayout.thumbnailPixels) {
                 Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
             } else {
                 symbol
@@ -236,46 +250,78 @@ struct EntryThumbnail: View {
     }
 }
 
+/// Small versions of stored images, decoded once. A stored image never
+/// changes (its file is named by its content), so the cache never goes stale.
+@MainActor
+enum ThumbnailCache {
+    private static let cache = NSCache<NSString, NSImage>()
+
+    static func image(for url: URL, maxPixels: Int) -> NSImage? {
+        let key = url.path as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+        ]
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        else { return nil }
+        let image = NSImage(cgImage: thumbnail, size: NSSize(width: thumbnail.width, height: thumbnail.height))
+        cache.setObject(image, forKey: key)
+        return image
+    }
+}
+
 /// The selected item in full, with the actions that apply to it.
 struct LibraryDetail: View {
     @Environment(ClipboardModel.self) private var model
-    let newCollection: (LibraryEntry) -> Void
+    let newCollection: (LibraryEntry?) -> Void
 
     var body: some View {
         if let entry = model.selectedEntry {
             VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.kindWord).font(.headline)
-                    Text(details(for: entry))
-                        .font(.subheadline)
-                        .foregroundStyle(Color.supportingText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(Layout.padding)
+                // One line of facts; the content below is what matters.
+                Text("\(entry.kindWord) · \(details(for: entry))")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.supportingText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(Layout.padding)
                 Divider()
                 content(for: entry)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                Divider()
-                // Actions for the detail sit at its bottom edge: with their names
-                // when the pane is wide enough, as symbols with tooltips when not.
-                ViewThatFits(in: .horizontal) {
-                    actionRow(for: entry).labelStyle(.titleAndIcon)
-                    actionRow(for: entry).labelStyle(.iconOnly)
+                // What the last action did, beside the actions themselves.
+                if let problem = model.problem {
+                    Banner(tone: .error, text: problem, onDismiss: { model.problem = nil })
+                } else if let receipt = model.receipt {
+                    Banner(tone: .info, text: receipt, onDismiss: { model.dismissReceipt() })
                 }
+                Divider()
+                // Actions sit at the bottom edge of the detail. Copy keeps its
+                // name at every width; the rest fall back to symbols with tooltips.
+                ViewThatFits(in: .horizontal) {
+                    actionRow(for: entry, labels: .all)
+                    actionRow(for: entry, labels: .copyOnly)
+                    actionRow(for: entry, labels: .none)
+                }
+                .controlSize(.large)
                 .padding(Layout.padding)
             }
-        } else {
+        } else if !model.entries.isEmpty {
             Text("Select an item to see it here.")
                 .foregroundStyle(Color.supportingText)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(Layout.padding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .accessibilityIdentifier("library-no-selection")
+        } else {
+            // Nothing to select: say nothing.
+            Color.clear
         }
     }
 
-    private func actionRow(for entry: LibraryEntry) -> some View {
+    private func actionRow(for entry: LibraryEntry, labels: EntryActions.Labels) -> some View {
         HStack(spacing: Layout.spacing) {
-            EntryActions(entry: entry, newCollection: newCollection)
-            Spacer(minLength: 0)
+            EntryActions(entry: entry, newCollection: newCollection, labels: labels, inDetail: true)
         }
     }
 
@@ -295,6 +341,7 @@ struct LibraryDetail: View {
                     Image(nsImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.thumbnail))
                         .padding(Layout.padding)
                         .accessibilityLabel(item.title)
                 } else {
@@ -304,7 +351,8 @@ struct LibraryDetail: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(item.filePaths, id: \.self) { path in
-                            Text((path as NSString).abbreviatingWithTildeInPath)
+                            let missing = !FileManager.default.fileExists(atPath: path)
+                            Text((path as NSString).abbreviatingWithTildeInPath + (missing ? " (moved or deleted)" : ""))
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -316,6 +364,7 @@ struct LibraryDetail: View {
         case .capture(let item):
             ThumbnailView(item: item)
                 .aspectRatio(contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: Radius.thumbnail))
                 .padding(Layout.padding)
         }
     }
@@ -336,48 +385,97 @@ struct LibraryDetail: View {
 
 /// What can be done with one entry. Only the actions that apply are shown.
 struct EntryActions: View {
+    /// Which buttons show their names.
+    enum Labels {
+        case all, copyOnly, none
+    }
+
     @Environment(ClipboardModel.self) private var model
     let entry: LibraryEntry
-    let newCollection: (LibraryEntry) -> Void
+    let newCollection: (LibraryEntry?) -> Void
+    var labels: Labels = .all
+    /// In the detail pane the actions carry keyboard shortcuts and Delete
+    /// sits apart at the trailing edge; in a context menu they do neither.
+    var inDetail = false
+    @State private var confirmingDelete = false
 
     var body: some View {
         let copied = model.copiedEntry == entry.id
-        Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") { model.copy(entry) }
-            .keyboardShortcut("c", modifiers: .command)
-            .help("Copy to the clipboard")
-            .accessibilityIdentifier("library-copy")
-        Button("Save to Folder…", systemImage: "square.and.arrow.down") {
-            if let folder = FolderPicker.choose() { model.export(entry, to: folder) }
+        Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") {
+            // Command C with words selected in the text or the search box
+            // copies those words, as it does everywhere else.
+            if inDetail, TextSelection.copySelectedText() { return }
+            model.copy(entry)
         }
-        .help("Save a copy in a folder. The item stays here.")
-        .accessibilityIdentifier("library-export")
-        Menu("Add to Collection", systemImage: "folder.badge.plus") {
-            let held = model.collectionIDs(for: entry)
-            ForEach(model.collections) { collection in
-                if held.contains(collection.id) {
-                    Button("Remove from \(collection.name)", systemImage: "checkmark") { model.remove(entry, from: collection) }
-                } else {
-                    Button(collection.name) { model.add(entry, to: collection) }
-                }
+        .labelStyle(ToolbarOrMenuLabelStyle(iconOnly: labels == .none))
+        .keyboardShortcut(inDetail ? KeyboardShortcut("c", modifiers: .command) : nil)
+        .help("Copy to the clipboard")
+        .accessibilityIdentifier("library-copy")
+
+        Group {
+            Button("Save to Folder…", systemImage: "square.and.arrow.down") {
+                if let folder = FolderPicker.choose() { model.export(entry, to: folder) }
             }
-            if !model.collections.isEmpty { Divider() }
-            Button("New Collection…") { newCollection(entry) }
-        }
-        .fixedSize()
-        .accessibilityIdentifier("library-collect")
-        switch entry {
-        case .clip(let item):
-            if item.kind == .files, let first = item.filePaths.first {
+            .help("Save a copy in a folder. The item stays here.")
+            .accessibilityIdentifier("library-export")
+            Menu("Add to Collection", systemImage: "folder.badge.plus") {
+                let held = model.collectionIDs(for: entry)
+                ForEach(model.collections) { collection in
+                    if held.contains(collection.id) {
+                        Button("Remove from \(collection.name)", systemImage: "checkmark") { model.remove(entry, from: collection) }
+                    } else {
+                        Button(collection.name) { model.add(entry, to: collection) }
+                    }
+                }
+                if !model.collections.isEmpty { Divider() }
+                Button("New Collection…") { newCollection(entry) }
+            }
+            .fixedSize()
+            .help("Add to a collection, where items are kept until you remove them")
+            .accessibilityIdentifier("library-collect")
+            if let url = revealURL {
                 Button("Show in Finder", systemImage: "folder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: first)])
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
+                .help("Show in Finder")
             }
-            Button("Delete", systemImage: "trash") { model.delete(entry) }
+            if inDetail { Spacer(minLength: 0) }
+            if case .clip = entry {
+                Button("Delete", systemImage: "trash") {
+                    if model.deletionRemovesSavedItem(entry) { confirmingDelete = true } else { model.delete(entry) }
+                }
+                .keyboardShortcut(inDetail ? KeyboardShortcut(.delete, modifiers: .command) : nil)
                 .help("Delete from history and from every collection")
                 .accessibilityIdentifier("library-delete")
-        case .capture(let item):
-            Button("Show in Finder", systemImage: "folder") { CaptureActions.reveal(item) }
+                .confirmationDialog("Delete this item from its collections too?", isPresented: $confirmingDelete) {
+                    Button("Delete", role: .destructive) { model.delete(entry) }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("It is saved in a collection. Deleting removes it from history and from every collection.")
+                }
+            }
         }
+        .labelStyle(ToolbarOrMenuLabelStyle(iconOnly: labels != .all))
+    }
+
+    /// The file to show in Finder: a capture, or the first file of a file item.
+    private var revealURL: URL? {
+        switch entry {
+        case .capture(let item): item.url
+        case .clip(let item): item.filePaths.first.map { URL(fileURLWithPath: $0) }
+        }
+    }
+}
+
+/// Copies the words selected in the focused text, when there are any.
+@MainActor
+enum TextSelection {
+    static func copySelectedText() -> Bool {
+        guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView,
+              textView.selectedRange().length > 0
+        else { return false }
+        textView.copy(nil)
+        return true
     }
 }
 
@@ -395,7 +493,8 @@ enum FolderPicker {
     }
 }
 
-/// What an entry carries when dragged into another app.
+/// What an entry carries when dragged into another app. A drag carries one
+/// thing: the text, the image file, or the first file of a file item.
 @MainActor
 enum DragPayload {
     static func provider(for entry: LibraryEntry, store: ClipStore) -> NSItemProvider {

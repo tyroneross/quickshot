@@ -172,6 +172,23 @@ final class ClipboardHarness {
         #expect(FileManager.default.fileExists(atPath: capture.url.path), "captures are not deleted from the library")
     }
 
+    /// Deleting something the person saved in a collection needs a confirmation;
+    /// deleting plain history and anything about a capture does not.
+    @Test func onlyDeletingASavedItemNeedsConfirmation() throws {
+        let harness = try ClipboardHarness()
+        harness.copyElsewhere("loose")
+        harness.copyElsewhere("saved")
+        let saved = try #require(harness.model.entries.first { $0.title == "saved" })
+        let loose = try #require(harness.model.entries.first { $0.title == "loose" })
+        let collection = try #require(harness.model.createCollection(named: "Keep"))
+        harness.model.add(saved, to: collection)
+        let capture = try harness.addCapture(named: "Screenshot E.png")
+
+        #expect(harness.model.deletionRemovesSavedItem(saved))
+        #expect(!harness.model.deletionRemovesSavedItem(loose))
+        #expect(!harness.model.deletionRemovesSavedItem(.capture(capture)))
+    }
+
     @Test func switchingSectionClearsTheSelectionAndADeletedCollectionFallsBackToHistory() throws {
         let harness = try ClipboardHarness()
         harness.copyElsewhere("something")
@@ -192,7 +209,7 @@ final class ClipboardHarness {
         _ = try harness.addCapture(named: "Screenshot login.png")
         _ = try harness.addCapture(named: "Recording demo.mov", kind: .video)
 
-        harness.model.section = .screenshots
+        harness.model.section = .captures
         #expect(Set(harness.titles) == ["Screenshot login", "Recording demo"])
         #expect(harness.model.entries.map(\.kindWord).sorted() == ["Recording", "Screenshot"])
 
