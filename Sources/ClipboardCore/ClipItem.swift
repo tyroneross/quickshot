@@ -86,12 +86,17 @@ public struct ClipItem: Identifiable, Hashable, Sendable {
 /// character, including a line break.
 enum FilePaths {
     static func encode(_ paths: [String]) -> String {
-        let data = (try? JSONEncoder().encode(paths)) ?? Data("[]".utf8)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        let data = (try? encoder.encode(paths)) ?? Data("[]".utf8)
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// Text that is not a JSON array is read as one path per line, the form
+    /// an earlier build used, so no stored file list ever reads as empty.
     static func decode(_ text: String) -> [String] {
-        (try? JSONDecoder().decode([String].self, from: Data(text.utf8))) ?? []
+        if let paths = try? JSONDecoder().decode([String].self, from: Data(text.utf8)) { return paths }
+        return text.split(separator: "\n").map(String.init)
     }
 }
 

@@ -108,6 +108,18 @@ private extension ClipCandidate {
 
 /// Puts a stored item back on a pasteboard, marked as QuickShot's own write.
 public enum ClipboardWriter {
+    /// Writes plain text marked as QuickShot's own, so it is not recorded as a
+    /// new copy. Used when the person copies a few selected words.
+    @discardableResult
+    public static func write(text: String, to pasteboard: NSPasteboard) -> Bool {
+        guard !text.isEmpty else { return false }
+        let entry = NSPasteboardItem()
+        entry.setString(text, forType: .string)
+        entry.setData(Data(), forType: ClipboardReader.ownWriteType)
+        pasteboard.clearContents()
+        return pasteboard.writeObjects([entry])
+    }
+
     @discardableResult
     public static func write(_ item: ClipItem, from store: ClipStore, to pasteboard: NSPasteboard) -> Bool {
         var entries: [NSPasteboardItem] = []

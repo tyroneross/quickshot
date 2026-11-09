@@ -113,6 +113,7 @@ func imageCandidate(width: Int = 40, height: Int = 30, white: CGFloat = 0.5) -> 
 
         #expect(item.filePaths == [odd.path, "/tmp/plain.txt"])
         #expect(try store.items(in: .history, matching: "plain").count == 1)
+        #expect(try store.items(in: .history, matching: "tmp/plain").count == 1, "a path fragment with a slash must match")
     }
 
     /// Putting a capture into a collection is not a copy: it must not show up
@@ -141,6 +142,48 @@ func imageCandidate(width: Int = 40, height: Int = 30, white: CGFloat = 0.5) -> 
         try store.add(other, to: collection)
         try store.remove(other, from: collection)
         #expect(try store.item(id: other.id) == nil, "a reference nothing holds is removed")
+    }
+
+    /// An earlier build stored file lists one path per line.
+    @Test func aFileListInTheOlderFormStillReadsAsPaths() {
+        #expect(FilePaths.decode("/tmp/a.png\n/tmp/b.png") == ["/tmp/a.png", "/tmp/b.png"])
+        #expect(FilePaths.decode(FilePaths.encode(["/tmp/with \"quotes\".txt"])) == ["/tmp/with \"quotes\".txt"])
+        #expect(FilePaths.encode(["/tmp/a.png"]).contains("/tmp/a.png"), "slashes stay unescaped so paths remain searchable")
+    }
+
+    /// A store written before the `in_history` column existed must open,
+    /// list its history and accept new copies.
+    @Test func aStoreFromBeforeTheHistoryColumnIsUpgradedOnOpen() throws {
+        let folder = try TempFolder()
+        do {
+            let old = try SQLiteDatabase(path: folder.url.appendingPathComponent("clipboard.sqlite").path)
+            try old.execute("""
+                CREATE TABLE items (
+                    id INTEGER PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL, image_file TEXT,
+                    width INTEGER NOT NULL, height INTEGER NOT NULL, bytes INTEGER NOT NULL, source_app TEXT,
+                    created REAL NOT NULL, last_copied REAL NOT NULL, hash TEXT NOT NULL UNIQUE)
+                """)
+            try old.execute("INSERT INTO items (kind, text, width, height, bytes, created, last_copied, hash) VALUES ('text', 'from the old store', 0, 0, 18, 1, 1, 'legacy-hash')")
+        }
+
+        let store = try ClipStore(directory: folder.url)
+
+        #expect(try store.items(in: .history).map(\.text) == ["from the old store"])
+        try store.record(.text("new copy"), at: now)
+        #expect(try store.items(in: .history).map(\.text) == ["new copy", "from the old store"])
+    }
+
+    @Test func aListIsBoundedButSearchLooksThroughEverything() throws {
+        let folder = try TempFolder()
+        let store = try ClipStore(directory: folder.url)
+        try store.record(.text("the needle in the oldest item"), at: now)
+        for index in 1...ClipStore.listLimit {
+            try store.record(.text("filler \(index)"), at: now.addingTimeInterval(Double(index)))
+        }
+
+        #expect(try store.items(in: .history).count == ClipStore.listLimit)
+        #expect(try store.items(in: .history).last?.text == "filler 1", "the oldest item falls outside the list")
+        #expect(try store.items(in: .history, matching: "needle").map(\.text) == ["the needle in the oldest item"])
     }
 
     @Test func emptyAndOversizedCopiesAreNotRecorded() throws {

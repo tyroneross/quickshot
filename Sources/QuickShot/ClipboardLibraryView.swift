@@ -404,8 +404,11 @@ struct EntryActions: View {
         Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") {
             // Command C with words selected in the text or the search box
             // copies those words, as it does everywhere else.
-            if inDetail, TextSelection.copySelectedText() { return }
-            model.copy(entry)
+            if inDetail, let words = TextSelection.selectedText() {
+                model.copySelectedText(words)
+            } else {
+                model.copy(entry)
+            }
         }
         .labelStyle(ToolbarOrMenuLabelStyle(iconOnly: labels == .none))
         .keyboardShortcut(inDetail ? KeyboardShortcut("c", modifiers: .command) : nil)
@@ -467,15 +470,14 @@ struct EntryActions: View {
     }
 }
 
-/// Copies the words selected in the focused text, when there are any.
+/// The words selected in the focused text, when there are any.
 @MainActor
 enum TextSelection {
-    static func copySelectedText() -> Bool {
-        guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView,
-              textView.selectedRange().length > 0
-        else { return false }
-        textView.copy(nil)
-        return true
+    static func selectedText() -> String? {
+        guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else { return nil }
+        let range = textView.selectedRange()
+        guard range.length > 0, let text = textView.textStorage?.string else { return nil }
+        return (text as NSString).substring(with: range)
     }
 }
 

@@ -38,6 +38,9 @@ final class LazyText: NSObject, NSPasteboardItemDataProvider, @unchecked Sendabl
     private let text: String
     private let lock = NSLock()
     private var read = false
+    /// Runs once, at the moment the content is asked for. Lets a test change
+    /// the pasteboard in the middle of a read.
+    var onRead: (() -> Void)?
 
     init(text: String) { self.text = text }
 
@@ -46,6 +49,9 @@ final class LazyText: NSObject, NSPasteboardItemDataProvider, @unchecked Sendabl
     func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
         lock.withLock { read = true }
         item.setString(text, forType: type)
+        let action = onRead
+        onRead = nil
+        action?()
     }
 }
 
@@ -271,6 +277,45 @@ final class LazyText: NSObject, NSPasteboardItemDataProvider, @unchecked Sendabl
         #expect(harness.texts == ["ordinary"])
     }
 
+    /// The password app is already in front when a check runs, and stays in
+    /// front for the copy; the person switches away before the next check.
+    @Test func anIgnoredAppThatStaysInFrontAcrossACheckStillBlocksItsCopy() throws {
+        let harness = try Harness()
+        harness.frontmost = "com.apple.Passwords"
+        harness.monitor.noteActivated("com.apple.Passwords")
+        harness.monitor.tick() // nothing new on the clipboard; the interval rolls over
+
+        let secret = harness.scratch.setLazyText("copied in Passwords after that check")
+        harness.frontmost = "com.example.editor"
+        harness.monitor.noteActivated("com.example.editor")
+        harness.monitor.tick()
+
+        #expect(harness.texts.isEmpty, "a copy made while an ignored app was in front was recorded")
+        #expect(!secret.wasRead)
+    }
+
+    /// The clipboard is replaced by a secret while an ordinary copy is being
+    /// read. The checks were made for the first copy, so the read is dropped,
+    /// and the secret is judged on its own at the next check.
+    @Test func aClipboardThatChangesDuringTheReadIsNotRecorded() throws {
+        let harness = try Harness()
+        let ordinary = harness.scratch.setLazyText("ordinary text")
+        let pasteboard = harness.scratch.pasteboard
+        ordinary.onRead = {
+            let secret = NSPasteboardItem()
+            secret.setString("hunter2", forType: .string)
+            secret.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+            pasteboard.clearContents()
+            pasteboard.writeObjects([secret])
+        }
+
+        harness.monitor.tick()
+        #expect(harness.texts.isEmpty, "a read that straddled a clipboard change was recorded")
+
+        harness.monitor.tick()
+        #expect(harness.texts.isEmpty, "the secret that replaced it must be skipped too")
+    }
+
     @Test func pausedHistoryRecordsNothingAndDoesNotCatchUpLater() throws {
         let harness = try Harness()
 
@@ -318,6 +363,16 @@ final class LazyText: NSObject, NSPasteboardItemDataProvider, @unchecked Sendabl
 
         #expect(scratch.pasteboard.data(forType: .png) == candidate.imageData)
         #expect(scratch.pasteboard.types?.contains(ClipboardReader.ownWriteType) == true)
+    }
+
+    @Test func aFewSelectedWordsAreWrittenMarkedAsOwn() {
+        let scratch = ScratchPasteboard()
+
+        #expect(ClipboardWriter.write(text: "two words", to: scratch.pasteboard))
+
+        #expect(scratch.pasteboard.string(forType: .string) == "two words")
+        #expect(ClipboardReader.read(scratch.pasteboard, sourceApp: nil) == .skipped(.ownWrite))
+        #expect(!ClipboardWriter.write(text: "", to: scratch.pasteboard))
     }
 
     @Test func writingFilesBackPutsEveryFileOnThePasteboard() throws {

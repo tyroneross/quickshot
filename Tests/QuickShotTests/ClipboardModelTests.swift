@@ -104,6 +104,39 @@ final class ClipboardHarness {
         #expect(harness.model.problem == nil)
     }
 
+    @Test func exportingAnImageWritesThePNG() async throws {
+        let harness = try ClipboardHarness()
+        let picture = harness.folder.url.appendingPathComponent("p.png")
+        try writeRealPNG(to: picture, width: 60, height: 40, hue: 0.4)
+        let data = try Data(contentsOf: picture)
+        try harness.store.record(ClipCandidate(kind: .image, imageData: data, pixelWidth: 60, pixelHeight: 40))
+        harness.model.reload()
+        let entry = try #require(harness.model.entries.first)
+        let destination = harness.folder.url.appendingPathComponent("Exports")
+
+        await harness.model.export(entry, to: destination).value
+
+        let written = try FileManager.default.contentsOfDirectory(atPath: destination.path)
+        #expect(written.count == 1 && written[0].hasSuffix(".png"))
+        #expect(try Data(contentsOf: destination.appendingPathComponent(written[0])) == data)
+        #expect(harness.model.problem == nil)
+    }
+
+    /// Copying a few selected words must not add an item (or bring back one
+    /// that was just deleted).
+    @Test func copyingSelectedWordsIsNotRecordedAsANewItem() throws {
+        let harness = try ClipboardHarness()
+        harness.copyElsewhere("a long private note")
+        let entry = try #require(harness.model.entries.first)
+
+        harness.model.copySelectedText("private note")
+        harness.model.delete(entry)
+        harness.model.monitor.tick()
+
+        #expect(harness.pasteboard.string(forType: .string) == "private note")
+        #expect(harness.titles.isEmpty, "the selected words were recorded as a new history item")
+    }
+
     @Test func exportingACaptureCopiesTheFileAndLeavesTheOriginal() async throws {
         let harness = try ClipboardHarness()
         let capture = try harness.addCapture(named: "Screenshot A.png")

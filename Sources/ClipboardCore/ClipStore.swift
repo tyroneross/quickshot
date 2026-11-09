@@ -27,6 +27,9 @@ public final class ClipStore {
     public static let maxItemBytes = 50 * 1024 * 1024
     /// History not saved in a collection is removed after this many days.
     public static let historyDays = 90
+    /// A list shows at most this many items, newest first. Search looks
+    /// through everything and returns at most this many matches.
+    public static let listLimit = 1_000
 
     public let directory: URL
     private let imagesDirectory: URL
@@ -52,6 +55,12 @@ public final class ClipStore {
                 collection_id INTEGER NOT NULL, item_id INTEGER NOT NULL, added REAL NOT NULL,
                 PRIMARY KEY (collection_id, item_id))
             """)
+        // A store created before `in_history` existed gains the column here.
+        let columns = try database.query("PRAGMA table_info(items)") { $0.text(1) ?? "" }
+        if !columns.contains("in_history") {
+            try database.execute("ALTER TABLE items ADD COLUMN in_history INTEGER NOT NULL DEFAULT 1")
+        }
+        try database.installContainsFolded()
     }
 
     /// The default location: Application Support/QuickShot/Clipboard.
@@ -120,20 +129,26 @@ public final class ClipStore {
         try items(where: "id = ?", [.int(id)]).first
     }
 
-    /// Items in a scope, most recently copied first. `search` keeps the items
-    /// whose text or file paths contain it, ignoring letter case and accents
-    /// the way Finder search does.
+    /// Items in a scope, most recently copied first, at most `listLimit`.
+    /// `search` keeps the items whose text or file paths contain it, ignoring
+    /// letter case and accents the way Finder search does. The match runs
+    /// inside SQLite, so items that do not match are never loaded.
     public func items(in scope: Scope, matching search: String = "") throws -> [ClipItem] {
-        let scoped: [ClipItem]
+        var conditions: [String] = []
+        var values: [SQLiteValue] = []
         switch scope {
         case .history:
-            scoped = try items(where: "in_history = 1", [])
+            conditions.append("in_history = 1")
         case .collection(let id):
-            scoped = try items(where: "id IN (SELECT item_id FROM collection_items WHERE collection_id = ?)", [.int(id)])
+            conditions.append("id IN (SELECT item_id FROM collection_items WHERE collection_id = ?)")
+            values.append(.int(id))
         }
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return scoped }
-        return scoped.filter { $0.searchableText.localizedStandardContains(query) }
+        if !query.isEmpty {
+            conditions.append("contains_folded(text, ?) = 1")
+            values.append(.text(query))
+        }
+        return try items(where: conditions.joined(separator: " AND "), values, limit: Self.listLimit)
     }
 
     /// Removes an item from history and from every collection.
@@ -212,10 +227,10 @@ public final class ClipStore {
 
     // MARK: Private
 
-    private func items(where condition: String, _ values: [SQLiteValue]) throws -> [ClipItem] {
+    private func items(where condition: String, _ values: [SQLiteValue], limit: Int? = nil) throws -> [ClipItem] {
         try database.query("""
             SELECT id, kind, text, image_file, width, height, bytes, source_app, created, last_copied
-            FROM items WHERE \(condition) ORDER BY last_copied DESC, id DESC
+            FROM items WHERE \(condition) ORDER BY last_copied DESC, id DESC \(limit.map { "LIMIT \($0)" } ?? "")
             """, values) { row in
             ClipItem(
                 id: row.int(0), kind: ClipKind(rawValue: row.text(1) ?? "") ?? .text, text: row.text(2) ?? "",

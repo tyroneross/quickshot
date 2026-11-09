@@ -45,6 +45,22 @@ final class SQLiteDatabase {
 
     deinit { sqlite3_close(handle) }
 
+    /// Adds `contains_folded(text, query)` to SQL: 1 when `text` contains
+    /// `query` ignoring letter case and accents, the way Finder search does.
+    /// Running it inside SQLite means rows that do not match are never loaded.
+    func installContainsFolded() throws {
+        let status = sqlite3_create_function_v2(
+            handle, "contains_folded", 2, SQLITE_UTF8 | SQLITE_DETERMINISTIC, nil,
+            { context, _, arguments in
+                func string(_ index: Int) -> String {
+                    guard let value = arguments?[index], let bytes = sqlite3_value_text(value) else { return "" }
+                    return String(decoding: UnsafeBufferPointer(start: bytes, count: Int(sqlite3_value_bytes(value))), as: UTF8.self)
+                }
+                sqlite3_result_int(context, string(0).localizedStandardContains(string(1)) ? 1 : 0)
+            }, nil, nil, nil)
+        guard status == SQLITE_OK else { throw failure("create function contains_folded") }
+    }
+
     var lastInsertedRowID: Int64 { sqlite3_last_insert_rowid(handle) }
     var changedRows: Int { Int(sqlite3_changes(handle)) }
 

@@ -220,20 +220,25 @@ final class ClipboardModel {
     /// and the destination slow; the receipt appears when the copy is done.
     @discardableResult
     func export(_ entry: LibraryEntry, to folder: URL) -> Task<Void, Never> {
+        // Only plain values cross to the background task; every write to the
+        // destination happens there.
         let work: @Sendable () throws -> [URL]
         switch entry {
-        case .clip(let item) where item.kind == .files:
-            let paths = item.filePaths
-            work = {
-                if let missing = paths.first(where: { !FileManager.default.fileExists(atPath: $0) }) {
-                    throw ClipExportError.missingFile((missing as NSString).lastPathComponent)
-                }
-                return try paths.map { try ClipExporter.copy(URL(fileURLWithPath: $0), to: folder) }
-            }
         case .clip(let item):
-            // Text and images are small (the store caps them) and need the store.
-            let result = Result { try ClipExporter.export(item, from: store, to: folder) }
-            work = { try result.get() }
+            switch item.kind {
+            case .text:
+                let text = item.text
+                work = { [try ClipExporter.exportText(text, to: folder)] }
+            case .image:
+                guard let source = store.imageURL(for: item) else {
+                    problem = "The image file is missing, so nothing was saved."
+                    return Task {}
+                }
+                work = { [try ClipExporter.exportImage(at: source, to: folder)] }
+            case .files:
+                let paths = item.filePaths
+                work = { try ClipExporter.exportFiles(paths, to: folder) }
+            }
         case .capture(let item):
             let source = item.url
             work = { [try ClipExporter.copy(source, to: folder)] }
@@ -273,6 +278,12 @@ final class ClipboardModel {
             try store.remove(item, from: collection)
         }
         reload()
+    }
+
+    /// Copies a few selected words, marked as QuickShot's own write so they
+    /// are not recorded as a new item.
+    func copySelectedText(_ text: String) {
+        ClipboardWriter.write(text: text, to: pasteboard)
     }
 
     /// Whether deleting the entry also takes it out of a collection, where the

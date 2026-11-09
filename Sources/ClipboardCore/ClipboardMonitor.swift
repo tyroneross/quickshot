@@ -52,6 +52,7 @@ public final class ClipboardMonitor {
         self.onChange = onChange
         // What was copied before launch is not history.
         lastChangeCount = pasteboard.changeCount
+        noteActivated(frontmostApp())
     }
 
     isolated deinit { stop() }
@@ -101,12 +102,19 @@ public final class ClipboardMonitor {
             return
         }
         setState(.running)
+        let current = frontmostApp()
         let recentApps = appsSinceLastTick
-        appsSinceLastTick = []
+        // The next interval starts with whatever is in front now: an app that
+        // stays in front across a check still counts for the copy that follows.
+        appsSinceLastTick = current.map { [$0] } ?? []
         let count = pasteboard.changeCount
         guard count != lastChangeCount else { return }
         lastChangeCount = count
-        let outcome = ClipboardReader.read(pasteboard, sourceApp: frontmostApp(), recentApps: recentApps)
+        let outcome = ClipboardReader.read(pasteboard, sourceApp: current, recentApps: recentApps)
+        // The checks and the content must describe the same copy. If the
+        // clipboard changed while it was being read, drop this read; the next
+        // check sees the new copy and judges it on its own.
+        guard pasteboard.changeCount == count else { return }
         guard case .item(let candidate) = outcome else { return }
         if (try? store.record(candidate)) != nil { onChange() }
     }

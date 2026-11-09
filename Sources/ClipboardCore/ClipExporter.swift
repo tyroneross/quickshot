@@ -14,24 +14,40 @@ public enum ClipExportError: Error, Equatable, LocalizedError {
 public enum ClipExporter {
     /// Returns the files written.
     public static func export(_ item: ClipItem, from store: ClipStore, to folder: URL, date: Date = Date()) throws -> [URL] {
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         switch item.kind {
         case .text:
-            let destination = unique("Clipboard Text \(stamp(date))", "txt", in: folder)
-            try item.text.write(to: destination, atomically: true, encoding: .utf8)
-            return [destination]
+            return [try exportText(item.text, to: folder, date: date)]
         case .image:
             guard let source = store.imageURL(for: item) else { return [] }
-            let destination = unique("Clipboard Image \(stamp(date))", "png", in: folder)
-            try FileManager.default.copyItem(at: source, to: destination)
-            return [destination]
+            return [try exportImage(at: source, to: folder, date: date)]
         case .files:
-            // Check every file first, so a missing one cannot leave a partial export.
-            if let missing = item.filePaths.first(where: { !FileManager.default.fileExists(atPath: $0) }) {
-                throw ClipExportError.missingFile((missing as NSString).lastPathComponent)
-            }
-            return try item.filePaths.map { try copy(URL(fileURLWithPath: $0), to: folder) }
+            return try exportFiles(item.filePaths, to: folder)
         }
+    }
+
+    // The three pieces below need no store, so a caller can run them off the
+    // main thread with plain values.
+
+    public static func exportText(_ text: String, to folder: URL, date: Date = Date()) throws -> URL {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let destination = unique("Clipboard Text \(stamp(date))", "txt", in: folder)
+        try text.write(to: destination, atomically: true, encoding: .utf8)
+        return destination
+    }
+
+    public static func exportImage(at source: URL, to folder: URL, date: Date = Date()) throws -> URL {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let destination = unique("Clipboard Image \(stamp(date))", "png", in: folder)
+        try FileManager.default.copyItem(at: source, to: destination)
+        return destination
+    }
+
+    public static func exportFiles(_ paths: [String], to folder: URL) throws -> [URL] {
+        // Check every file first, so a missing one cannot leave a partial export.
+        if let missing = paths.first(where: { !FileManager.default.fileExists(atPath: $0) }) {
+            throw ClipExportError.missingFile((missing as NSString).lastPathComponent)
+        }
+        return try paths.map { try copy(URL(fileURLWithPath: $0), to: folder) }
     }
 
     /// Copies one file into a folder under its own name, never over another file.
