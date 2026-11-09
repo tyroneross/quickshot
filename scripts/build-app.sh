@@ -34,7 +34,18 @@ if [[ "${1:-}" == "--install" ]]; then
         echo "QuickShot is running. Quit it, then run this again." >&2
         exit 1
     fi
-    rm -rf "$DEST"
-    cp -R "$APP" "$DEST"
+    # Stage the new copy first, so a failed copy never costs the working app.
+    STAGED="$DEST.installing"
+    PREVIOUS="$DEST.previous"
+    rm -rf "$STAGED" "$PREVIOUS"
+    cp -R "$APP" "$STAGED"
+    codesign --verify --strict "$STAGED"
+    if [[ -e "$DEST" ]]; then mv "$DEST" "$PREVIOUS"; fi
+    if ! mv "$STAGED" "$DEST"; then
+        if [[ -e "$PREVIOUS" ]]; then mv "$PREVIOUS" "$DEST"; fi
+        echo "Install failed; the previous copy was put back." >&2
+        exit 1
+    fi
+    rm -rf "$PREVIOUS"
     echo "Installed $DEST"
 fi

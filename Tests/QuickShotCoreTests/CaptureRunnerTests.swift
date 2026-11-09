@@ -129,6 +129,67 @@ import TestSupport
         #expect(!runner.isRunning)
     }
 
+    /// A tool that floods standard error must not stall the capture, and the
+    /// notice keeps only the start of the message.
+    @Test(.timeLimit(.minutes(1)))
+    func aToolThatFloodsStandardErrorStillFinishes() async throws {
+        let folder = try TempFolder()
+        let tool = try folder.script("echo 'first line of the error' >&2; head -c 400000 /dev/zero | tr '\\0' 'x' >&2; exit 1")
+        let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
+
+        guard case .failed(let message)? = await runner.run(.screenshot) else {
+            Issue.record("expected a failure")
+            return
+        }
+        #expect(message.hasPrefix("first line of the error"))
+        #expect(message.count <= CaptureRunner.messageLimit)
+        #expect(try leftovers(in: folder).isEmpty, "scratch folder and error log must be cleaned up")
+    }
+
+    /// Cancelling before the tool has started must stop it from starting.
+    @Test func aTaskCancelledBeforeTheToolStartsNeverRunsIt() async throws {
+        let folder = try TempFolder()
+        let marker = folder.url.appendingPathComponent("ran")
+        let tool = try folder.script(": > '\(marker.path)'; \(Fixture.pngPrintf) > \"$OUT\"")
+        let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
+
+        let task = Task { () -> CaptureResult? in
+            // Cancelled before run() is entered.
+            await Task.yield()
+            return await runner.run(.screenshot)
+        }
+        task.cancel()
+
+        #expect(await task.value == .cancelled)
+        #expect(!FileManager.default.fileExists(atPath: marker.path), "the tool was started despite the cancel")
+        #expect(!runner.isRunning)
+    }
+
+    @Test func cancellingTheTaskClosesARunningTool() async throws {
+        let folder = try TempFolder()
+        let tool = try folder.script("""
+        : > '\(folder.url.path)/started'
+        while :; do sleep 0.05; done
+        """)
+        let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
+
+        let task = Task { await runner.run(.screenshot) }
+        try await waitForFile(folder.url.appendingPathComponent("started"))
+        task.cancel()
+
+        #expect(await task.value == .cancelled)
+    }
+
+    /// An empty file holds nothing: it is removed and the scratch folder with it.
+    @Test func anEmptyFileIsRemovedWithItsScratchFolder() async throws {
+        let folder = try TempFolder()
+        let tool = try folder.script(": > \"$OUT\"")
+        let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
+
+        #expect(await runner.run(.screenshot) == .cancelled)
+        #expect(try leftovers(in: folder).isEmpty)
+    }
+
     @Test func cancelWithNothingRunningDoesNothing() async throws {
         let folder = try TempFolder()
         let tool = try folder.script("\(Fixture.pngPrintf) > \"$OUT\"")
@@ -144,6 +205,11 @@ import TestSupport
     }
 
     private func scratchFolders(in folder: TempFolder) throws -> [String] {
+        try leftovers(in: folder)
+    }
+
+    /// Scratch folders and error logs the runner left behind.
+    private func leftovers(in folder: TempFolder) throws -> [String] {
         try FileManager.default.contentsOfDirectory(atPath: folder.url.path)
             .filter { $0.hasPrefix("QuickShot-") }
     }

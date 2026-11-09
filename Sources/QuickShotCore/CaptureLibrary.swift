@@ -73,10 +73,18 @@ public struct CaptureLibrary: Sendable {
 
 /// Calls back when the contents of a folder change.
 public final class DirectoryWatcher: @unchecked Sendable {
+    public enum Change: Sendable {
+        /// Files were added, removed or renamed inside the folder.
+        case contents
+        /// The folder itself was moved or deleted. This watcher now follows
+        /// the old folder, so the owner must start a new one.
+        case folderGone
+    }
+
     private let source: DispatchSourceFileSystemObject
 
     /// Returns `nil` when the folder cannot be opened.
-    public init?(directory: URL, queue: DispatchQueue = .main, onChange: @escaping @Sendable () -> Void) {
+    public init?(directory: URL, queue: DispatchQueue = .main, onChange: @escaping @Sendable (Change) -> Void) {
         let descriptor = open(directory.path, O_EVTONLY)
         guard descriptor >= 0 else { return nil }
         source = DispatchSource.makeFileSystemObjectSource(
@@ -84,7 +92,10 @@ public final class DirectoryWatcher: @unchecked Sendable {
             eventMask: [.write, .rename, .delete],
             queue: queue
         )
-        source.setEventHandler(handler: onChange)
+        source.setEventHandler { [source] in
+            let gone = !source.data.intersection([.rename, .delete]).isEmpty
+            onChange(gone ? .folderGone : .contents)
+        }
         source.setCancelHandler { close(descriptor) }
         source.resume()
     }

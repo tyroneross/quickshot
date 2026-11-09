@@ -40,6 +40,7 @@ final class AppModel {
     @ObservationIgnored private var libraryWasVisible = false
     @ObservationIgnored private var copiedReset: Task<Void, Never>?
     @ObservationIgnored private var idleWaiters: [() -> Void] = []
+    @ObservationIgnored private var captureTask: Task<Void, Never>?
 
     /// Window control, set by the app delegate.
     @ObservationIgnored var showLibrary: () -> Void = {}
@@ -71,8 +72,17 @@ final class AppModel {
     }
 
     private func watch() {
-        watcher = DirectoryWatcher(directory: library.directory) { [weak self] in
-            Task { @MainActor in self?.reload() }
+        watcher = DirectoryWatcher(directory: library.directory) { [weak self] change in
+            Task { @MainActor in
+                guard let self else { return }
+                // A moved or deleted folder leaves the watcher on the old one,
+                // even if another folder now sits at the same path.
+                if change == .folderGone {
+                    try? self.library.ensureDirectory()
+                    self.watch()
+                }
+                self.reload()
+            }
         }
     }
 
@@ -118,7 +128,7 @@ final class AppModel {
         // Keep QuickShot's own window out of the picture.
         libraryWasVisible = isLibraryVisible()
         hideLibrary()
-        Task {
+        captureTask = Task {
             let result = await runner.run(mode)
             isCapturing = false
             handle(result)
@@ -128,9 +138,10 @@ final class AppModel {
         }
     }
 
-    /// Closes the system picker without saving.
+    /// Closes the system picker without saving. Cancelling the task covers
+    /// every moment of a capture, including before the tool has started.
     func cancelCapture() {
-        runner.cancel()
+        captureTask?.cancel()
     }
 
     /// Runs `action` once no capture is running: now if idle, otherwise right

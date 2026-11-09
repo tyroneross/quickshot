@@ -7,10 +7,15 @@ enum CaptureActions {
     /// Puts the capture on the clipboard as a file, plus image data for
     /// screenshots so it pastes into editors and chat boxes alike.
     @discardableResult
+    ///
+    /// Everything is prepared first; the clipboard is left untouched when the
+    /// file has gone or cannot be read.
     static func copy(_ item: CaptureItem, to pasteboard: NSPasteboard = .general) -> Bool {
+        guard FileManager.default.isReadableFile(atPath: item.url.path) else { return false }
         let entry = NSPasteboardItem()
         entry.setString(item.url.absoluteString, forType: .fileURL)
-        if item.kind == .image, let data = try? Data(contentsOf: item.url) {
+        if item.kind == .image {
+            guard let data = try? Data(contentsOf: item.url) else { return false }
             if item.url.pathExtension.lowercased() == "png" {
                 entry.setData(data, forType: .png)
             } else if let tiff = NSImage(data: data)?.tiffRepresentation {

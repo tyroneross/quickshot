@@ -78,7 +78,9 @@ import TestSupport
     @Test func theWatcherReportsANewFile() async throws {
         let folder = try TempFolder()
         let (stream, continuation) = AsyncStream.makeStream(of: Void.self)
-        let watcher = DirectoryWatcher(directory: folder.url, queue: .global()) { continuation.yield() }
+        let watcher = DirectoryWatcher(directory: folder.url, queue: .global()) { change in
+            if change == .contents { continuation.yield() }
+        }
         #expect(watcher != nil)
 
         _ = try folder.write(Fixture.png, named: "arrived.png")
@@ -95,6 +97,28 @@ import TestSupport
     }
 
     @Test func theWatcherRefusesAFolderThatDoesNotExist() {
-        #expect(DirectoryWatcher(directory: URL(fileURLWithPath: "/nonexistent-quickshot")) {} == nil)
+        #expect(DirectoryWatcher(directory: URL(fileURLWithPath: "/nonexistent-quickshot")) { _ in } == nil)
+    }
+
+    /// Once the folder is moved, the watcher follows the old folder; it must
+    /// say so, or changes at the original path go unnoticed.
+    @Test func theWatcherReportsThatItsFolderWasMoved() async throws {
+        let parent = try TempFolder()
+        let watched = parent.url.appendingPathComponent("captures", isDirectory: true)
+        try FileManager.default.createDirectory(at: watched, withIntermediateDirectories: true)
+        let (stream, continuation) = AsyncStream.makeStream(of: DirectoryWatcher.Change.self)
+        let watcher = DirectoryWatcher(directory: watched, queue: .global()) { continuation.yield($0) }
+
+        try FileManager.default.moveItem(at: watched, to: parent.url.appendingPathComponent("moved"))
+
+        let sawGone = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { for await change in stream where change == .folderGone { return true }; return false }
+            group.addTask { try? await Task.sleep(for: .seconds(5)); return false }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        #expect(sawGone, "no folder-gone event within 5 seconds")
+        withExtendedLifetime(watcher) {}
     }
 }

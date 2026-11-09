@@ -173,6 +173,41 @@ import Testing
         #expect(harness.model.items.isEmpty)
     }
 
+    /// Cancel pressed in the same instant as the capture request: the tool
+    /// must never start.
+    @Test func cancellingImmediatelyAfterRequestingNeverStartsTheTool() async throws {
+        let harness = try Harness(tool: Tool.waits)
+        harness.model.start()
+
+        harness.model.capture(.screenshot)
+        harness.model.cancelCapture()
+        try await harness.waitUntilIdle()
+        try await Task.sleep(for: .milliseconds(300))
+
+        #expect(!harness.toolRan, "the picker was opened after it had been cancelled")
+        #expect(!harness.model.isCapturing)
+        #expect(harness.model.notice == .nothingSaved)
+    }
+
+    /// The folder is moved away and a new one appears at the same path: the
+    /// model must watch the new one.
+    @Test func aReplacedCapturesFolderIsWatchedAgain() async throws {
+        let harness = try Harness(tool: Tool.writesPNG)
+        harness.model.start()
+        let original = harness.captures.url
+        let aside = original.deletingLastPathComponent().appendingPathComponent("aside-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: aside) }
+
+        try FileManager.default.moveItem(at: original, to: aside)
+        try FileManager.default.createDirectory(at: original, withIntermediateDirectories: true)
+        try await Task.sleep(for: .milliseconds(800)) // let the folder-gone event arrive
+
+        try writeRealPNG(to: original.appendingPathComponent("in-new-folder.png"), hue: 0.2)
+        try await harness.waitUntil { !harness.model.items.isEmpty }
+
+        #expect(harness.model.items.map(\.name) == ["in-new-folder"])
+    }
+
     @Test func aFileAddedInFinderAppearsWithoutACapture() async throws {
         let harness = try Harness(tool: Tool.writesPNG)
         harness.model.start()
@@ -217,6 +252,22 @@ import Testing
         let png = try #require(pasteboard.data(forType: .png))
         #expect(png == (try Data(contentsOf: url)))
         #expect(NSImage(data: png)?.size == NSSize(width: 640, height: 400))
+    }
+
+    /// The file was removed in Finder before the list refreshed.
+    @Test func copyingAMissingFileFailsAndLeavesTheClipboardAlone() throws {
+        let folder = try TempFolder()
+        let gone = folder.url.appendingPathComponent("gone.png")
+        let item = CaptureItem(url: gone, kind: .image, created: Date(), byteCount: 1)
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("quickshot-test-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("what was there before", forType: .string)
+
+        #expect(!CaptureActions.copy(item, to: pasteboard))
+
+        #expect(pasteboard.string(forType: .string) == "what was there before")
+        #expect(pasteboard.string(forType: .fileURL) == nil)
     }
 
     @Test func copyingARecordingPutsOnlyTheFileOnTheClipboard() throws {
