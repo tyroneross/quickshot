@@ -420,6 +420,26 @@ final class LazyText: NSObject, NSPasteboardItemDataProvider, @unchecked Sendabl
         #expect(written.isEmpty, "a failed export must not leave some of the files behind")
     }
 
+    /// Another export takes the chosen name between the check and the write.
+    @Test func aNameTakenDuringAnExportIsNotOverwritten() throws {
+        let folder = try TempFolder()
+        var attempts = 0
+
+        let written = try ClipExporter.claimingUniqueName("Clipboard Text", "txt", in: folder.url) { destination in
+            attempts += 1
+            if attempts == 1 {
+                // The other export wins the name first.
+                try Data("theirs".utf8).write(to: destination)
+            }
+            try Data("ours".utf8).write(to: destination, options: .withoutOverwriting)
+        }
+
+        #expect(attempts == 2)
+        #expect(written.lastPathComponent == "Clipboard Text (2).txt")
+        #expect(try String(contentsOf: folder.url.appendingPathComponent("Clipboard Text.txt"), encoding: .utf8) == "theirs")
+        #expect(try String(contentsOf: written, encoding: .utf8) == "ours")
+    }
+
     @Test func exportWritesACopyAndLeavesTheItemInPlace() throws {
         let folder = try TempFolder()
         let store = try ClipStore(directory: folder.url.appendingPathComponent("store"))

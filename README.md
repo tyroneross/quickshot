@@ -31,16 +31,17 @@ QuickShot also keeps a history of what you copy. Press Control Shift V in any ap
 | Find something you copied | Open the library; **History** lists text, images and files, newest first. Type in Search to filter |
 | See it in full | Select it: the right pane shows the whole text, the image, or the file list |
 | Use it again | **Copy** (Command C), then paste where you need it; or drag the row into another app |
-| Keep it | **Add to Collection**. Items in a collection never expire |
+| Keep it | **Add to Collection**. Items in a collection never expire. Deleting a saved item asks first |
 | Put a copy somewhere else | **Save to Folder**. A copy is written to the folder you pick; the item stays in the library |
-| See your screenshots here | **Screenshots** lists everything in `~/Pictures/QuickShot`, in place |
+| See your captures here | **Captures** lists every screenshot and recording in `~/Pictures/QuickShot`, in place |
 | Stop recording for a while | **Pause Clipboard History** in the menu bar item |
 
 What is kept and what is not:
 
 - History is stored on this Mac only, in `~/Library/Application Support/QuickShot/Clipboard` (an SQLite index plus image files).
 - Items not in a collection are removed after 90 days. A single copy larger than 50 MB is not recorded.
-- Copies marked as secret by the app that made them (the nspasteboard.org convention password managers use), and copies made while Keychain Access, Passwords or 1Password is in front, are never read or stored.
+- Copies marked as secret by the app that made them (the nspasteboard.org convention password managers use), and copies made while Keychain Access, Passwords or 1Password is or just was in front, are never read or stored.
+- Pausing history is remembered when QuickShot restarts.
 - QuickShot does not paste for you: that would need Accessibility permission.
 - If macOS is set to deny QuickShot the clipboard (Privacy & Security, Paste from Other Apps), the library says so and records nothing.
 
