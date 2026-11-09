@@ -10,7 +10,7 @@ public enum ClipKind: String, Sendable, CaseIterable {
 /// What one copy produced, before it is stored.
 public struct ClipCandidate: Sendable, Equatable {
     public var kind: ClipKind
-    /// The text, or one file path per line for `files`. Empty for an image.
+    /// The text, or the file paths as a JSON array for `files`. Empty for an image.
     public var text: String
     /// PNG bytes for an image.
     public var imageData: Data?
@@ -34,7 +34,7 @@ public struct ClipCandidate: Sendable, Equatable {
     }
 
     public static func files(_ urls: [URL], sourceApp: String? = nil) -> ClipCandidate {
-        ClipCandidate(kind: .files, text: urls.map(\.path).joined(separator: "\n"), sourceApp: sourceApp)
+        ClipCandidate(kind: .files, text: FilePaths.encode(urls.map(\.path)), sourceApp: sourceApp)
     }
 
     var byteCount: Int { imageData?.count ?? text.utf8.count }
@@ -55,7 +55,12 @@ public struct ClipItem: Identifiable, Hashable, Sendable {
     public let lastCopied: Date
 
     public var filePaths: [String] {
-        kind == .files ? text.split(separator: "\n").map(String.init) : []
+        kind == .files ? FilePaths.decode(text) : []
+    }
+
+    /// The text a search looks through: the text itself, or the file paths.
+    public var searchableText: String {
+        kind == .files ? filePaths.joined(separator: "\n") : text
     }
 
     /// One line that names the item in a list.
@@ -74,6 +79,19 @@ public struct ClipItem: Identifiable, Hashable, Sendable {
             default: return "\(names[0]) and \(names.count - 1) more"
             }
         }
+    }
+}
+
+/// File paths as stored: a JSON array, because a file name may contain any
+/// character, including a line break.
+enum FilePaths {
+    static func encode(_ paths: [String]) -> String {
+        let data = (try? JSONEncoder().encode(paths)) ?? Data("[]".utf8)
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    static func decode(_ text: String) -> [String] {
+        (try? JSONDecoder().decode([String].self, from: Data(text.utf8))) ?? []
     }
 }
 

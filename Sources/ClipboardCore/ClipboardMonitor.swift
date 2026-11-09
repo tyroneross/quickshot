@@ -23,6 +23,14 @@ public final class ClipboardMonitor {
     private let onChange: () -> Void
     private var lastChangeCount: Int
     private var timer: Timer?
+    private var activationObserver: NSObjectProtocol?
+    /// Apps that came to the front since the last check.
+    private var appsSinceLastTick: Set<String> = []
+
+    /// The app in front right now, by bundle identifier.
+    public static let systemFrontmostApp: () -> String? = {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+    }
 
     /// - Parameters:
     ///   - frontmostApp: bundle identifier of the app in front, used as the
@@ -33,7 +41,7 @@ public final class ClipboardMonitor {
     public init(
         pasteboard: NSPasteboard = .general,
         store: ClipStore,
-        frontmostApp: @escaping () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
+        frontmostApp: @escaping () -> String? = ClipboardMonitor.systemFrontmostApp,
         accessDenied: (() -> Bool)? = nil,
         onChange: @escaping () -> Void
     ) {
@@ -46,16 +54,33 @@ public final class ClipboardMonitor {
         lastChangeCount = pasteboard.changeCount
     }
 
+    isolated deinit { stop() }
+
     public func start() {
-        timer?.invalidate()
+        stop()
         timer = Timer.scheduledTimer(withTimeInterval: Self.interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
+        }
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let app = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
+            Task { @MainActor in self?.noteActivated(app) }
         }
     }
 
     public func stop() {
         timer?.invalidate()
         timer = nil
+        if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
+        activationObserver = nil
+    }
+
+    /// Records that an app came to the front. A copy made in one app is often
+    /// noticed only after the person has switched to another, so every app
+    /// seen since the last check counts when deciding whether to skip it.
+    public func noteActivated(_ bundleIdentifier: String?) {
+        if let bundleIdentifier { appsSinceLastTick.insert(bundleIdentifier) }
     }
 
     public var isPaused: Bool {
@@ -76,10 +101,13 @@ public final class ClipboardMonitor {
             return
         }
         setState(.running)
+        let recentApps = appsSinceLastTick
+        appsSinceLastTick = []
         let count = pasteboard.changeCount
         guard count != lastChangeCount else { return }
         lastChangeCount = count
-        guard case .item(let candidate) = ClipboardReader.read(pasteboard, sourceApp: frontmostApp()) else { return }
+        let outcome = ClipboardReader.read(pasteboard, sourceApp: frontmostApp(), recentApps: recentApps)
+        guard case .item(let candidate) = outcome else { return }
         if (try? store.record(candidate)) != nil { onChange() }
     }
 

@@ -88,6 +88,61 @@ func imageCandidate(width: Int = 40, height: Int = 30, white: CGFloat = 0.5) -> 
         #expect(three.filePaths == ["/tmp/a.png", "/tmp/b.png", "/tmp/c.png"])
     }
 
+    /// SQLite's C interface stops at a zero byte unless told the length.
+    @Test func textWithANULCharacterIsStoredWhole() throws {
+        let folder = try TempFolder()
+        let store = try ClipStore(directory: folder.url)
+        let text = "before\u{0}after-the-nul"
+
+        let item = try #require(try store.record(.text(text), at: now))
+
+        #expect(item.text == text)
+        #expect(try store.items(in: .history).first?.text.utf8.count == text.utf8.count)
+        // The plain prefix is different content and gets its own item.
+        try store.record(.text("before"), at: now.addingTimeInterval(1))
+        #expect(try store.items(in: .history).count == 2)
+    }
+
+    /// A file name may contain a line break; the list must not split on it.
+    @Test func aFileNameContainingALineBreakStaysOneFile() throws {
+        let folder = try TempFolder()
+        let store = try ClipStore(directory: folder.url)
+        let odd = URL(fileURLWithPath: "/tmp/first line\nsecond line.txt")
+
+        let item = try #require(try store.record(.files([odd, URL(fileURLWithPath: "/tmp/plain.txt")]), at: now))
+
+        #expect(item.filePaths == [odd.path, "/tmp/plain.txt"])
+        #expect(try store.items(in: .history, matching: "plain").count == 1)
+    }
+
+    /// Putting a capture into a collection is not a copy: it must not show up
+    /// in History or move anything.
+    @Test func aReferenceIsNotACopyAndIsRemovedWhenNothingHoldsIt() throws {
+        let folder = try TempFolder()
+        let store = try ClipStore(directory: folder.url)
+        try store.record(.text("real copy"), at: now)
+        let collection = try store.createCollection(named: "Bugs")
+        let capture = ClipCandidate.files([URL(fileURLWithPath: "/tmp/Screenshot.png")])
+
+        let reference = try #require(try store.reference(capture, at: now.addingTimeInterval(50)))
+        try store.add(reference, to: collection)
+        #expect(try store.reference(capture)?.id == reference.id, "asking again returns the same item, untouched")
+
+        #expect(try store.items(in: .history).map(\.kind) == [.text], "a reference must not appear in History")
+        #expect(try store.items(in: .collection(collection.id)).map(\.id) == [reference.id])
+
+        // A real copy of the same file later does belong in History.
+        try store.record(capture, at: now.addingTimeInterval(99))
+        #expect(try store.items(in: .history).count == 2)
+        try store.remove(reference, from: collection)
+        #expect(try store.items(in: .history).count == 2, "an item that was really copied survives leaving the collection")
+
+        let other = try #require(try store.reference(.files([URL(fileURLWithPath: "/tmp/Other.png")])))
+        try store.add(other, to: collection)
+        try store.remove(other, from: collection)
+        #expect(try store.item(id: other.id) == nil, "a reference nothing holds is removed")
+    }
+
     @Test func emptyAndOversizedCopiesAreNotRecorded() throws {
         let folder = try TempFolder()
         let store = try ClipStore(directory: folder.url)
@@ -108,11 +163,14 @@ func imageCandidate(width: Int = 40, height: Int = 30, white: CGFloat = 0.5) -> 
         try store.record(.text("snake_case_name"), at: now.addingTimeInterval(2))
         try store.record(.text("snakeXcase"), at: now.addingTimeInterval(3))
 
+        try store.record(.text("Menu de l'école"), at: now.addingTimeInterval(4))
+        #expect(try store.items(in: .history, matching: "ÉCOLE").map(\.text) == ["Menu de l'école"], "case folding must cover non-ASCII letters")
+        #expect(try store.items(in: .history, matching: "ecole").map(\.text) == ["Menu de l'école"], "accents are ignored, as in Finder search")
         #expect(try store.items(in: .history, matching: "acme").map(\.text) == ["Invoice 2026 for Acme"])
         #expect(try store.items(in: .history, matching: "%").map(\.text) == ["100% done"])
         #expect(try store.items(in: .history, matching: "snake_case").map(\.text) == ["snake_case_name"])
         #expect(try store.items(in: .history, matching: "nothing like this").isEmpty)
-        #expect(try store.items(in: .history, matching: "   ").count == 4)
+        #expect(try store.items(in: .history, matching: "   ").count == 5)
     }
 
     @Test func collectionsHoldItemsAndSurviveDeletingTheCollection() throws {

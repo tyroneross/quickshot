@@ -12,6 +12,8 @@ public enum ClipboardReader {
         case ownWrite
         /// Copied while an ignored app was in front.
         case ignoredApp
+        /// Larger than the store keeps.
+        case tooLarge
     }
 
     public enum Outcome: Sendable, Equatable {
@@ -41,15 +43,23 @@ public enum ClipboardReader {
         "com.agilebits.onepassword7",
     ]
 
+    /// - Parameters:
+    ///   - sourceApp: the app the copy is attributed to.
+    ///   - recentApps: every app that was in front since the last check. A copy
+    ///     is skipped if any of them is ignored, because the person may have
+    ///     copied in one app and switched to another before the check ran.
     public static func read(
         _ pasteboard: NSPasteboard,
         sourceApp: String?,
+        recentApps: Set<String> = [],
         ignoredApps: Set<String> = defaultIgnoredApps
     ) -> Outcome {
         let types = Set((pasteboard.types ?? []).map(\.rawValue))
         if types.contains(ownWriteType.rawValue) { return .skipped(.ownWrite) }
         if !types.isDisjoint(with: markerTypes) { return .skipped(.secret) }
-        if let sourceApp, ignoredApps.contains(sourceApp) { return .skipped(.ignoredApp) }
+        let apps = recentApps.union(sourceApp.map { [$0] } ?? [])
+        if !apps.isDisjoint(with: ignoredApps) { return .skipped(.ignoredApp) }
+        // Nothing above this line reads content; everything below does.
 
         // Files first: Finder also puts an icon image and the name as text on the pasteboard.
         let fileURLs = (pasteboard.readObjects(
@@ -63,19 +73,28 @@ public enum ClipboardReader {
         let hasRichText = types.contains(NSPasteboard.PasteboardType.rtf.rawValue)
             || types.contains(NSPasteboard.PasteboardType.html.rawValue)
         let text = pasteboard.string(forType: .string) ?? ""
-        if hasImage, !hasRichText || text.isEmpty, let image = image(from: pasteboard) { return .item(image.with(sourceApp)) }
+        if text.utf8.count > ClipStore.maxItemBytes { return .skipped(.tooLarge) }
+        if hasImage, !hasRichText || text.isEmpty {
+            switch image(from: pasteboard) {
+            case .item(let image): return .item(image.with(sourceApp))
+            case .skipped(let reason): return .skipped(reason)
+            case .nothing: break
+            }
+        }
         if !text.isEmpty { return .item(.text(text, sourceApp: sourceApp)) }
-        if hasImage, let image = image(from: pasteboard) { return .item(image.with(sourceApp)) }
         return .nothing
     }
 
-    /// The pasteboard's image as PNG, with its pixel size.
-    private static func image(from pasteboard: NSPasteboard) -> ClipCandidate? {
-        guard let data = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff),
-              let bitmap = NSBitmapImageRep(data: data),
-              let png = pasteboard.data(forType: .png) ?? bitmap.representation(using: .png, properties: [:])
-        else { return nil }
-        return ClipCandidate(kind: .image, imageData: png, pixelWidth: bitmap.pixelsWide, pixelHeight: bitmap.pixelsHigh)
+    /// The pasteboard's image as PNG, with its pixel size. The size limit is
+    /// checked on the raw data, before any conversion.
+    private static func image(from pasteboard: NSPasteboard) -> Outcome {
+        let png = pasteboard.data(forType: .png)
+        guard let data = png ?? pasteboard.data(forType: .tiff) else { return .nothing }
+        guard data.count <= ClipStore.maxItemBytes else { return .skipped(.tooLarge) }
+        guard let bitmap = NSBitmapImageRep(data: data),
+              let stored = png ?? bitmap.representation(using: .png, properties: [:])
+        else { return .nothing }
+        return .item(ClipCandidate(kind: .image, imageData: stored, pixelWidth: bitmap.pixelsWide, pixelHeight: bitmap.pixelsHigh))
     }
 }
 
@@ -103,6 +122,9 @@ public enum ClipboardWriter {
             entry.setData(data, forType: .png)
             entries = [entry]
         case .files:
+            // A file that was moved or deleted cannot be pasted; say so
+            // instead of putting a dead reference on the clipboard.
+            guard item.filePaths.allSatisfy({ FileManager.default.fileExists(atPath: $0) }) else { return false }
             entries = item.filePaths.map { path in
                 let entry = NSPasteboardItem()
                 entry.setString(URL(fileURLWithPath: path).absoluteString, forType: .fileURL)

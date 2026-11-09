@@ -1,5 +1,15 @@
 import Foundation
 
+public enum ClipExportError: Error, Equatable, LocalizedError {
+    case missingFile(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .missingFile(let name): "\(name) was moved or deleted, so nothing was saved."
+        }
+    }
+}
+
 /// Saves a copy of an item into a folder. The item itself stays where it is.
 public enum ClipExporter {
     /// Returns the files written.
@@ -16,6 +26,10 @@ public enum ClipExporter {
             try FileManager.default.copyItem(at: source, to: destination)
             return [destination]
         case .files:
+            // Check every file first, so a missing one cannot leave a partial export.
+            if let missing = item.filePaths.first(where: { !FileManager.default.fileExists(atPath: $0) }) {
+                throw ClipExportError.missingFile((missing as NSString).lastPathComponent)
+            }
             return try item.filePaths.map { try copy(URL(fileURLWithPath: $0), to: folder) }
         }
     }

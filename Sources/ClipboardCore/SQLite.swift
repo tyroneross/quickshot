@@ -20,8 +20,12 @@ struct SQLiteRow {
 
     func int(_ column: Int32) -> Int64 { sqlite3_column_int64(statement, column) }
     func real(_ column: Int32) -> Double { sqlite3_column_double(statement, column) }
+    /// Read by byte length, not up to the first zero byte, so text that
+    /// contains a NUL character comes back whole.
     func text(_ column: Int32) -> String? {
-        sqlite3_column_text(statement, column).map { String(cString: $0) }
+        guard let bytes = sqlite3_column_text(statement, column) else { return nil }
+        let count = Int(sqlite3_column_bytes(statement, column))
+        return String(decoding: UnsafeBufferPointer(start: bytes, count: count), as: UTF8.self)
     }
 }
 
@@ -60,7 +64,10 @@ final class SQLiteDatabase {
             switch value {
             case .int(let number): status = sqlite3_bind_int64(statement, index, number)
             case .real(let number): status = sqlite3_bind_double(statement, index, number)
-            case .text(let string): status = sqlite3_bind_text(statement, index, string, -1, Self.transient)
+            case .text(let string):
+                // An explicit length: a negative one would stop at the first NUL.
+                var utf8 = Array(string.utf8)
+                status = sqlite3_bind_text(statement, index, &utf8, Int32(utf8.count), Self.transient)
             case .null: status = sqlite3_bind_null(statement, index)
             }
             guard status == SQLITE_OK else { throw failure(sql) }

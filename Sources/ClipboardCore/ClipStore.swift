@@ -42,7 +42,8 @@ public final class ClipStore {
             CREATE TABLE IF NOT EXISTS items (
                 id INTEGER PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL, image_file TEXT,
                 width INTEGER NOT NULL, height INTEGER NOT NULL, bytes INTEGER NOT NULL, source_app TEXT,
-                created REAL NOT NULL, last_copied REAL NOT NULL, hash TEXT NOT NULL UNIQUE)
+                created REAL NOT NULL, last_copied REAL NOT NULL, hash TEXT NOT NULL UNIQUE,
+                in_history INTEGER NOT NULL DEFAULT 1)
             """)
         try database.execute(
             "CREATE TABLE IF NOT EXISTS collections (id INTEGER PRIMARY KEY, name TEXT NOT NULL, created REAL NOT NULL)")
@@ -73,9 +74,24 @@ public final class ClipStore {
         let now = date.timeIntervalSince1970
 
         if let existing = try items(where: "hash = ?", [.text(hash)]).first {
-            try database.execute("UPDATE items SET last_copied = ? WHERE id = ?", [.real(now), .int(existing.id)])
+            try database.execute("UPDATE items SET last_copied = ?, in_history = 1 WHERE id = ?",
+                                 [.real(now), .int(existing.id)])
             return try item(id: existing.id)
         }
+        return try insert(candidate, hash: hash, at: now, inHistory: true)
+    }
+
+    /// Returns the item for some content without recording a copy: an existing
+    /// item is returned untouched, and a new one is created outside History.
+    /// Used to put a QuickShot capture into a collection, which is not a copy.
+    public func reference(_ candidate: ClipCandidate, at date: Date = Date()) throws -> ClipItem? {
+        guard candidate.byteCount > 0 else { return nil }
+        let hash = Self.hash(candidate)
+        if let existing = try items(where: "hash = ?", [.text(hash)]).first { return existing }
+        return try insert(candidate, hash: hash, at: date.timeIntervalSince1970, inHistory: false)
+    }
+
+    private func insert(_ candidate: ClipCandidate, hash: String, at now: Double, inHistory: Bool) throws -> ClipItem? {
 
         var imageFile: String?
         if candidate.kind == .image, let data = candidate.imageData {
@@ -84,12 +100,13 @@ public final class ClipStore {
             imageFile = name
         }
         try database.execute("""
-            INSERT INTO items (kind, text, image_file, width, height, bytes, source_app, created, last_copied, hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO items (kind, text, image_file, width, height, bytes, source_app, created, last_copied, hash, in_history)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, [
                 .text(candidate.kind.rawValue), .text(candidate.text), imageFile.map(SQLiteValue.text) ?? .null,
-                .int(Int64(candidate.pixelWidth)), .int(Int64(candidate.pixelHeight)), .int(Int64(size)),
+                .int(Int64(candidate.pixelWidth)), .int(Int64(candidate.pixelHeight)), .int(Int64(candidate.byteCount)),
                 candidate.sourceApp.map(SQLiteValue.text) ?? .null, .real(now), .real(now), .text(hash),
+                .int(inHistory ? 1 : 0),
             ])
         return try item(id: database.lastInsertedRowID)
     }
@@ -98,24 +115,20 @@ public final class ClipStore {
         try items(where: "id = ?", [.int(id)]).first
     }
 
-    /// Items in a scope, most recently copied first. `search` is a plain
-    /// substring match on the stored text, ignoring letter case.
+    /// Items in a scope, most recently copied first. `search` keeps the items
+    /// whose text or file paths contain it, ignoring letter case and accents
+    /// the way Finder search does.
     public func items(in scope: Scope, matching search: String = "") throws -> [ClipItem] {
-        var conditions: [String] = []
-        var values: [SQLiteValue] = []
-        if case .collection(let id) = scope {
-            conditions.append("id IN (SELECT item_id FROM collection_items WHERE collection_id = ?)")
-            values.append(.int(id))
+        let scoped: [ClipItem]
+        switch scope {
+        case .history:
+            scoped = try items(where: "in_history = 1", [])
+        case .collection(let id):
+            scoped = try items(where: "id IN (SELECT item_id FROM collection_items WHERE collection_id = ?)", [.int(id)])
         }
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !query.isEmpty {
-            conditions.append(#"text LIKE ? ESCAPE '\'"#)
-            let escaped = query.replacingOccurrences(of: #"\"#, with: #"\\"#)
-                .replacingOccurrences(of: "%", with: #"\%"#)
-                .replacingOccurrences(of: "_", with: #"\_"#)
-            values.append(.text("%\(escaped)%"))
-        }
-        return try items(where: conditions.isEmpty ? "1" : conditions.joined(separator: " AND "), values)
+        guard !query.isEmpty else { return scoped }
+        return scoped.filter { $0.searchableText.localizedStandardContains(query) }
     }
 
     /// Removes an item from history and from every collection.
@@ -138,6 +151,12 @@ public final class ClipStore {
             where: "last_copied < ? AND id NOT IN (SELECT item_id FROM collection_items)", [.real(cutoff)])
         for item in stale { try delete(item) }
         return stale.count
+    }
+
+    /// Removes references that are no longer in History or in any collection.
+    private func removeOrphanedReferences() throws {
+        let orphans = try items(where: "in_history = 0 AND id NOT IN (SELECT item_id FROM collection_items)", [])
+        for item in orphans { try delete(item) }
     }
 
     // MARK: Collections
@@ -165,6 +184,7 @@ public final class ClipStore {
     public func deleteCollection(_ collection: ClipCollection) throws {
         try database.execute("DELETE FROM collection_items WHERE collection_id = ?", [.int(collection.id)])
         try database.execute("DELETE FROM collections WHERE id = ?", [.int(collection.id)])
+        try removeOrphanedReferences()
     }
 
     public func add(_ item: ClipItem, to collection: ClipCollection, at date: Date = Date()) throws {
@@ -175,6 +195,7 @@ public final class ClipStore {
     public func remove(_ item: ClipItem, from collection: ClipCollection) throws {
         try database.execute("DELETE FROM collection_items WHERE collection_id = ? AND item_id = ?",
                              [.int(collection.id), .int(item.id)])
+        try removeOrphanedReferences()
     }
 
     /// The ids of the collections that hold an item.
