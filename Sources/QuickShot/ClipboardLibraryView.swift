@@ -5,10 +5,12 @@ import SwiftUI
 
 /// Sizes for the clipboard library window.
 enum LibraryLayout {
-    static let defaultSize = NSSize(width: 860, height: 520)
-    static let minimumSize = NSSize(width: 640, height: 360)
-    static let sidebarWidth: CGFloat = 170
-    static let listWidth: CGFloat = 260
+    static let defaultSize = NSSize(width: 1020, height: 560)
+    static let minimumSize = NSSize(width: 680, height: 360)
+    /// Column widths: minimum, preferred, maximum. The detail pane takes the rest.
+    static let sidebar = (min: CGFloat(140), ideal: CGFloat(170), max: CGFloat(200))
+    static let list = (min: CGFloat(220), ideal: CGFloat(270), max: CGFloat(320))
+    static let detailMinWidth: CGFloat = 300
     /// Long text is wrapped at this width so lines stay readable.
     static let readableWidth: CGFloat = 640
     static let thumbnail: CGFloat = 28
@@ -25,22 +27,23 @@ struct ClipboardLibraryView: View {
 
     var body: some View {
         @Bindable var model = model
-        NavigationSplitView {
+        // Three plain columns with draggable dividers. Everything sits below a
+        // standard title bar; nothing depends on toolbar insets.
+        HSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 140, ideal: LibraryLayout.sidebarWidth, max: 240)
-        } content: {
+                .frame(minWidth: LibraryLayout.sidebar.min, idealWidth: LibraryLayout.sidebar.ideal, maxWidth: LibraryLayout.sidebar.max)
             VStack(spacing: 0) {
+                SearchField(text: $model.searchText)
                 notices
                 entryList
             }
-            .navigationSplitViewColumnWidth(min: 220, ideal: LibraryLayout.listWidth, max: 420)
-            .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search")
-        } detail: {
+            .frame(minWidth: LibraryLayout.list.min, idealWidth: LibraryLayout.list.ideal, maxWidth: LibraryLayout.list.max)
             LibraryDetail(newCollection: { entry in
                 pendingEntry = entry
                 draftName = ""
                 namingCollection = true
             })
+            .frame(minWidth: LibraryLayout.detailMinWidth, maxWidth: .infinity)
         }
         .frame(minWidth: LibraryLayout.minimumSize.width, minHeight: LibraryLayout.minimumSize.height)
         .alert("New Collection", isPresented: $namingCollection) {
@@ -93,7 +96,8 @@ struct ClipboardLibraryView: View {
                 .accessibilityIdentifier("new-collection")
             }
         }
-        .listStyle(.sidebar)
+        // The inset style draws a plain selection that needs no window material.
+        .listStyle(.inset)
     }
 
     @ViewBuilder private var notices: some View {
@@ -139,6 +143,31 @@ struct ClipboardLibraryView: View {
     }
 }
 
+/// The search box above the list.
+struct SearchField: View {
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").accessibilityHidden(true).foregroundStyle(Color.supportingText)
+            TextField("Search", text: $text)
+                .textFieldStyle(.plain)
+                .accessibilityIdentifier("library-search")
+            if !text.isEmpty {
+                Button("Clear Search", systemImage: "xmark.circle.fill") { text = "" }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .frame(minWidth: 24, minHeight: 24)
+                    .help("Clear search")
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .background(Color.primary.opacity(Palette.tintOpacity / 2), in: RoundedRectangle(cornerRadius: Radius.thumbnail))
+        .padding(Layout.padding)
+    }
+}
+
 struct EmptyLibraryHint: View {
     let text: String
 
@@ -163,15 +192,18 @@ struct EntryRow: View {
             EntryThumbnail(entry: entry)
                 .frame(width: LibraryLayout.thumbnail, height: LibraryLayout.thumbnail)
                 .clipShape(RoundedRectangle(cornerRadius: Radius.thumbnail))
-            Text(entry.title)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(entry.date, format: .dateTime.month(.abbreviated).day().hour().minute())
-                .font(.subheadline)
-                .foregroundStyle(Color.supportingText)
-                .lineLimit(1)
-                .layoutPriority(1)
+            // The title gets the full width; kind and time sit on a second
+            // line so they never squeeze it.
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text("\(entry.kindWord) · \(entry.date.formatted(.dateTime.month(.abbreviated).day().hour().minute()))")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.supportingText)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
@@ -224,10 +256,11 @@ struct LibraryDetail: View {
                 content(for: entry)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 Divider()
-                // Actions for the detail sit at its bottom edge.
-                HStack(spacing: Layout.spacing) {
-                    EntryActions(entry: entry, newCollection: newCollection)
-                    Spacer(minLength: 0)
+                // Actions for the detail sit at its bottom edge: with their names
+                // when the pane is wide enough, as symbols with tooltips when not.
+                ViewThatFits(in: .horizontal) {
+                    actionRow(for: entry).labelStyle(.titleAndIcon)
+                    actionRow(for: entry).labelStyle(.iconOnly)
                 }
                 .padding(Layout.padding)
             }
@@ -236,6 +269,13 @@ struct LibraryDetail: View {
                 .foregroundStyle(Color.supportingText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("library-no-selection")
+        }
+    }
+
+    private func actionRow(for entry: LibraryEntry) -> some View {
+        HStack(spacing: Layout.spacing) {
+            EntryActions(entry: entry, newCollection: newCollection)
+            Spacer(minLength: 0)
         }
     }
 
@@ -304,6 +344,7 @@ struct EntryActions: View {
         let copied = model.copiedEntry == entry.id
         Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") { model.copy(entry) }
             .keyboardShortcut("c", modifiers: .command)
+            .help("Copy to the clipboard")
             .accessibilityIdentifier("library-copy")
         Button("Save to Folder…", systemImage: "square.and.arrow.down") {
             if let folder = FolderPicker.choose() { model.export(entry, to: folder) }
@@ -332,7 +373,7 @@ struct EntryActions: View {
                 }
             }
             Button("Delete", systemImage: "trash") { model.delete(entry) }
-                .help("Remove from history and from every collection")
+                .help("Delete from history and from every collection")
                 .accessibilityIdentifier("library-delete")
         case .capture(let item):
             Button("Show in Finder", systemImage: "folder") { CaptureActions.reveal(item) }
@@ -390,11 +431,9 @@ enum AppNames {
 enum ClipboardWindow {
     static func make(model: ClipboardModel) -> NSWindow {
         let hosting = NSHostingController(rootView: ClipboardLibraryView().environment(model))
-        hosting.sceneBridgingOptions = [.toolbars]
         let window = NSWindow(contentViewController: hosting)
         window.title = "Clipboard"
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.toolbarStyle = .unified
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.isReleasedWhenClosed = false
         window.contentMinSize = LibraryLayout.minimumSize
         window.setContentSize(LibraryLayout.defaultSize)
