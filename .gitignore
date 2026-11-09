@@ -8,3 +8,4 @@ build/
 .ibr/
 xcuserdata/
 DerivedData/
+.rally/
