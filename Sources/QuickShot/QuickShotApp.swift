@@ -39,6 +39,7 @@ struct MenuContent: View {
             Text("Saving the recording")
         case .recording where model.countdown != nil:
             Button("Cancel Recording") { model.cancelCapture() }
+                .keyboardShortcut(Shortcut.recording.keyboardShortcut)
         case .recording:
             Button("Stop Recording") { model.stopRecording() }
                 .keyboardShortcut(Shortcut.recording.keyboardShortcut)

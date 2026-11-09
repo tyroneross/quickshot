@@ -10,10 +10,13 @@ import ScreenCaptureKit
 /// Injectable: the model uses `AppRecording`, and tests stand in for it.
 @MainActor
 protocol AppRecording: AnyObject {
+    /// True once frames are being written; before that, Stop means Cancel.
+    var isRecording: Bool { get }
     /// Shows the picker, runs `beforeStart` (the countdown; `false` means
     /// cancelled), records until `stop()`, and reports like the tool.
     func record(to output: URL, preset: RecordingPreset, beforeStart: @MainActor () async -> Bool) async -> CaptureResult
-    /// Ends the recording and keeps it.
+    /// Ends the recording and keeps it. Before recording has started it
+    /// cancels instead, since there is nothing to keep.
     func stop()
     /// Ends the recording, or the picker, and keeps nothing.
     func cancel()
@@ -21,20 +24,32 @@ protocol AppRecording: AnyObject {
 
 @MainActor
 final class WindowRecorder: NSObject, AppRecording {
-    private var stream: SCStream?
-    private var recordingOutput: SCRecordingOutput?
-    private var finish: CheckedContinuation<CaptureResult, Never>?
-    private var pickerWaiter: CheckedContinuation<SCContentFilter?, Never>?
-    private var stopRequested = false
-    private var cancelRequested = false
-    private var output: URL?
+    /// One recording from picker to file. Callbacks name the session they
+    /// belong to, so a late callback from an old one cannot touch a new one.
+    private final class Session {
+        let output: URL
+        var stream: SCStream?
+        var recordingOutput: SCRecordingOutput?
+        var isRecording = false
+        var cancelled = false
+        /// The result, once known. Set exactly once; read when awaited.
+        var result: CaptureResult?
+        var waiter: CheckedContinuation<CaptureResult, Never>?
+        var pickerWaiter: CheckedContinuation<UncheckedSendable<SCContentFilter>?, Never>?
+        init(output: URL) { self.output = output }
+    }
+
+    private var session: Session?
+    var isRecording: Bool { session?.isRecording ?? false }
 
     func record(to output: URL, preset: RecordingPreset, beforeStart: @MainActor () async -> Bool) async -> CaptureResult {
-        self.output = output
-        stopRequested = false
-        cancelRequested = false
-        guard let filter = await pick() else { return .cancelled }
-        guard await beforeStart(), !cancelRequested, !stopRequested else { return .cancelled }
+        let session = Session(output: output)
+        self.session = session
+        defer { if self.session === session { self.session = nil } }
+
+        guard let filter = await pick(session) else { return .cancelled }
+        guard await beforeStart(), !session.cancelled else { return .cancelled }
+
         let configuration = SCStreamConfiguration()
         let scale = filter.pointPixelScale
         configuration.width = Int(filter.contentRect.width * CGFloat(scale))
@@ -48,52 +63,73 @@ final class WindowRecorder: NSObject, AppRecording {
         recordingConfiguration.outputFileType = .mov
         recordingConfiguration.videoCodecType = .hevc
         let recordingOutput = SCRecordingOutput(configuration: recordingConfiguration, delegate: self)
+        session.stream = stream
+        session.recordingOutput = recordingOutput
         do {
             try stream.addRecordingOutput(recordingOutput)
             try await stream.startCapture()
         } catch {
-            return .failed("Could not start recording the window: \(error.localizedDescription)")
+            settle(session, .failed("Could not start recording the window: \(error.localizedDescription)"))
+            return await outcome(of: session)
         }
-        self.stream = stream
-        self.recordingOutput = recordingOutput
-        if stopRequested || cancelRequested { await endCapture() }
-        let result = await withCheckedContinuation { finish = $0 }
-        self.stream = nil
-        self.recordingOutput = nil
-        return result
+        session.isRecording = true
+        // A cancel that arrived while starting is honoured now.
+        if session.cancelled { await end(session, keep: false) }
+        return await outcome(of: session)
     }
 
     func stop() {
-        stopRequested = true
-        guard stream != nil else { return }
-        Task { await endCapture() }
+        guard let session else { return }
+        guard session.isRecording else { cancel(); return }
+        Task { await end(session, keep: true) }
     }
 
     func cancel() {
-        cancelRequested = true
-        pickerWaiter?.resume(returning: nil)
-        pickerWaiter = nil
-        guard stream != nil else { return }
-        Task { await endCapture() }
+        guard let session else { return }
+        session.cancelled = true
+        session.pickerWaiter?.resume(returning: nil)
+        session.pickerWaiter = nil
+        if session.isRecording { Task { await end(session, keep: false) } }
     }
 
-    private func endCapture() async {
-        guard let stream else { return }
-        try? await stream.stopCapture()
-        // The recording output reports when the file is complete; a cancel
-        // does not wait for it, since nothing is kept.
-        if cancelRequested { settle(.cancelled) }
+    // MARK: One way out
+
+    /// Stops the stream. Kept recordings are settled by the recording
+    /// output once the file is complete; everything else settles here.
+    private func end(_ session: Session, keep: Bool) async {
+        guard session.result == nil, let stream = session.stream, session.isRecording else { return }
+        session.isRecording = false
+        do {
+            try await stream.stopCapture()
+        } catch {
+            settle(session, .failed("Could not stop recording the window: \(error.localizedDescription)"))
+            return
+        }
+        if !keep { settle(session, .cancelled) }
     }
 
-    private func settle(_ result: CaptureResult) {
-        if case .cancelled = result, let output { try? FileManager.default.removeItem(at: output) }
-        finish?.resume(returning: result)
-        finish = nil
+    private func settle(_ session: Session, _ result: CaptureResult) {
+        guard session.result == nil else { return }
+        // A partial file is of no use to anyone: a failed or cancelled
+        // recording leaves nothing behind.
+        if case .captured = result {} else { try? FileManager.default.removeItem(at: session.output) }
+        session.result = result
+        session.waiter?.resume(returning: result)
+        session.waiter = nil
+    }
+
+    /// The result, now if already known, otherwise when it arrives.
+    private func outcome(of session: Session) async -> CaptureResult {
+        if let result = session.result { return result }
+        let result = await withCheckedContinuation { session.waiter = $0 }
+        session.stream = nil
+        session.recordingOutput = nil
+        return result
     }
 
     // MARK: Picker
 
-    private func pick() async -> SCContentFilter? {
+    private func pick(_ session: Session) async -> SCContentFilter? {
         let picker = SCContentSharingPicker.shared
         var configuration = SCContentSharingPickerConfiguration()
         configuration.allowedPickerModes = [.singleWindow, .singleApplication]
@@ -102,10 +138,15 @@ final class WindowRecorder: NSObject, AppRecording {
         picker.add(self)
         picker.isActive = true
         picker.present()
-        let filter = await withCheckedContinuation { pickerWaiter = $0 }
+        let filter: UncheckedSendable<SCContentFilter>? = session.cancelled ? nil : await withCheckedContinuation { session.pickerWaiter = $0 }
         picker.isActive = false
         picker.remove(self)
-        return filter
+        return filter?.value
+    }
+
+    private func pickerFinished(with filter: UncheckedSendable<SCContentFilter>?) {
+        session?.pickerWaiter?.resume(returning: filter)
+        session?.pickerWaiter = nil
     }
 }
 
@@ -114,57 +155,59 @@ extension WindowRecorder: SCContentSharingPickerObserver {
         // SCContentFilter is an immutable description the system hands over;
         // it is only read on the main actor after this.
         let chosen = UncheckedSendable(filter)
-        Task { @MainActor in
-            pickerWaiter?.resume(returning: chosen.value)
-            pickerWaiter = nil
-        }
+        Task { @MainActor in pickerFinished(with: chosen) }
     }
 
     nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
-        Task { @MainActor in
-            pickerWaiter?.resume(returning: nil)
-            pickerWaiter = nil
-        }
+        Task { @MainActor in pickerFinished(with: nil) }
     }
 
     nonisolated func contentSharingPickerStartDidFailWithError(_ error: any Error) {
-        Task { @MainActor in
-            pickerWaiter?.resume(returning: nil)
-            pickerWaiter = nil
-        }
+        Task { @MainActor in pickerFinished(with: nil) }
     }
 }
 
 extension WindowRecorder: SCStreamDelegate, SCRecordingOutputDelegate {
     nonisolated func stream(_ stream: SCStream, didStopWithError error: any Error) {
+        let which = UncheckedSendable(stream)
         Task { @MainActor in
-            // The window closed, or the system ended the stream: keep what was
-            // written so far, which the recording output finishes.
-            if !cancelRequested, recordingOutput != nil { stopRequested = true }
+            // The window closed, or the system ended the stream. The stream is
+            // already stopped; keep what was written, which the recording
+            // output finishes and reports.
+            guard let session, session.stream === which.value, session.result == nil else { return }
+            session.isRecording = false
         }
     }
 
     nonisolated func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
+        let which = UncheckedSendable(recordingOutput)
         Task { @MainActor in
-            guard !cancelRequested else { return }
-            if let output, FileManager.default.fileExists(atPath: output.path) {
-                settle(.captured([output]))
+            guard let session, session.recordingOutput === which.value, session.result == nil else { return }
+            if FileManager.default.fileExists(atPath: session.output.path) {
+                settle(session, .captured([session.output]))
             } else {
-                settle(.failed("The window recording was not written."))
+                settle(session, .failed("The window recording was not written."))
             }
         }
     }
 
     nonisolated func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: any Error) {
+        let which = UncheckedSendable(recordingOutput)
+        let message = error.localizedDescription
         Task { @MainActor in
-            guard !cancelRequested else { return }
-            settle(.failed("Recording the window failed: \(error.localizedDescription)"))
+            guard let session, session.recordingOutput === which.value, session.result == nil else { return }
+            // The stream may still be running: stop it, then report.
+            if session.isRecording, let stream = session.stream {
+                session.isRecording = false
+                try? await stream.stopCapture()
+            }
+            settle(session, .failed("Recording the window failed: \(message)"))
         }
     }
 }
 
 /// Carries a value the compiler cannot prove Sendable across an actor hop.
-private struct UncheckedSendable<Value>: @unchecked Sendable {
+struct UncheckedSendable<Value>: @unchecked Sendable {
     let value: Value
     init(_ value: Value) { self.value = value }
 }

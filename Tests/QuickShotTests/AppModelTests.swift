@@ -303,6 +303,18 @@ import Testing
         #expect(harness.model.notice == nil)
     }
 
+    /// Codex, 2026-11-09: Stop in the instant after Record, before the
+    /// recorder had the request, was lost and the recording went ahead.
+    @Test func stopBeforeAnAppRecordingHasStartedCancelsIt() async throws {
+        let harness = try Harness(tool: Tool.fails)
+        harness.model.start()
+        harness.model.record(.app)
+        harness.model.stopRecording()
+        try await harness.waitUntilIdle()
+        #expect(harness.appRecorder.started == 0, "nothing was recorded")
+        #expect(harness.model.items.isEmpty)
+    }
+
     @Test func cancellingAnAppRecordingKeepsNothing() async throws {
         let harness = try Harness(tool: Tool.fails)
         harness.model.start()

@@ -125,6 +125,7 @@ func writeRealPNG(to url: URL, width: Int = 640, height: Int = 400, hue: CGFloat
 final class FakeAppRecorder: AppRecording {
     private(set) var started = 0
     private(set) var countedDown = false
+    var isRecording: Bool { started > 0 && waiter != nil }
     private var stopped = false
     private var cancelled = false
     private var waiter: CheckedContinuation<Void, Never>?
@@ -142,6 +143,9 @@ final class FakeAppRecorder: AppRecording {
         return .captured([output])
     }
 
-    func stop() { stopped = true; waiter?.resume(); waiter = nil }
+    func stop() {
+        guard isRecording else { cancel(); return }
+        stopped = true; waiter?.resume(); waiter = nil
+    }
     func cancel() { cancelled = true; waiter?.resume(); waiter = nil }
 }

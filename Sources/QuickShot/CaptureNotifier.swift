@@ -33,8 +33,10 @@ final class CaptureNotifier: NSObject, UNUserNotificationCenterDelegate {
             asked = true
             _ = try? await center.requestAuthorization(options: [.alert, .sound])
         }
+        // Allowed is not enough: a notification with banners turned off would
+        // arrive silently, which is no signal at all.
         let settings = await center.notificationSettings()
-        guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return false }
+        guard settings.authorizationStatus == .authorized, settings.alertSetting == .enabled else { return false }
         let content = UNMutableNotificationContent()
         content.title = item.kind == .image ? "Screenshot saved" : "Recording saved"
         content.body = copied

@@ -294,7 +294,12 @@ final class AppModel {
         guard activeCapture == .recording, !isSavingRecording else { return }
         // Stop during the countdown: nothing is recorded yet, so cancel.
         if countdown != nil { captureTask?.cancel(); return }
-        if recordingTarget == .app { appRecorder.stop(); return }
+        if recordingTarget == .app {
+            // Before frames are being written there is nothing to keep, and the
+            // request may not even have reached the recorder yet: cancel.
+            if appRecorder.isRecording { appRecorder.stop() } else { cancelCapture() }
+            return
+        }
         // Stop pressed before the recorder has started: nothing is recorded
         // yet, so cancel it rather than lose the request.
         if !runner.finishRecording() { captureTask?.cancel() }
