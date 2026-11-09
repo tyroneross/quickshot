@@ -21,9 +21,14 @@ enum Layout {
     static let windowWidth: CGFloat = 340
     static let padding: CGFloat = 12
     static let spacing: CGFloat = 10
-    /// The strip holding the two capture buttons. Fixed, so nothing below it
+    /// The strip holding the capture buttons. Fixed, so nothing below it
     /// moves when the buttons change to the capturing status.
     static let captureBarHeight: CGFloat = 100
+    /// The Quick/Demo switch under the buttons. Fixed, so the notice and the
+    /// grid below it never move when the wording changes.
+    static let presetRowHeight: CGFloat = 36
+    /// The "Saved in" line at the bottom.
+    static let footerHeight: CGFloat = 28
     static let cardMinWidth: CGFloat = 140
     /// The grid grows with its content up to about two rows, then scrolls.
     static let gridMaxIdealHeight: CGFloat = 330
@@ -51,15 +56,19 @@ struct LibraryView: View {
     var body: some View {
         VStack(spacing: 0) {
             CaptureBar()
+            if model.activeCapture == nil {
+                RecordingPresetRow()
+            }
             // While a capture runs, the bar itself says what is happening.
             if model.activeCapture == nil, let notice = model.notice {
                 NoticeBanner(notice: notice)
             }
-            // With no captures the two buttons are the whole screen: they
-            // already say what to do, so nothing is written under them.
+            // With no captures the buttons are the whole screen: they already
+            // say what to do, so nothing is written under them.
             if !model.items.isEmpty {
                 CaptureGrid()
             }
+            FolderFooter(directory: model.library.directory)
         }
         // The ideal size is what the content needs; the window follows it.
         .frame(minWidth: Layout.windowWidth, idealWidth: Layout.windowWidth, maxWidth: .infinity,
@@ -94,7 +103,7 @@ struct CaptureBar: View {
                     .controlSize(.large)
                     .help("Stop and save the recording (\(Shortcut.recording.words))")
                     .accessibilityIdentifier("stop-recording")
-            case .screenshot:
+            case .area:
                 CaptureStatus(title: "Choosing an area", hint: "Space picks a window. Escape cancels")
                 Spacer(minLength: Layout.spacing)
                 Button("Cancel", systemImage: "xmark.circle") { model.cancelCapture() }
@@ -102,12 +111,20 @@ struct CaptureBar: View {
                     .controlSize(.large)
                     .help("Close the screenshot picker without saving")
                     .accessibilityIdentifier("cancel-capture")
+            case .fullScreen:
+                CaptureStatus(title: "Capturing the screen", hint: "Every display, in a moment")
+                Spacer(minLength: Layout.spacing)
             case nil:
-                CaptureTile(title: "Screenshot", symbol: "camera.fill", symbolColor: .primary, shortcut: .screenshot,
-                            help: "Take a screenshot (\(Shortcut.screenshot.words))") {
-                    model.capture(.screenshot)
+                CaptureTile(title: "Full Screen", symbol: "macwindow.on.rectangle", symbolColor: .primary, shortcut: .fullScreen,
+                            help: "Capture every display at once (\(Shortcut.fullScreen.words))") {
+                    model.capture(.fullScreen)
                 }
-                .accessibilityIdentifier("take-screenshot")
+                .accessibilityIdentifier("capture-full-screen")
+                CaptureTile(title: "Area", symbol: "camera.viewfinder", symbolColor: .primary, shortcut: .area,
+                            help: "Drag over an area with the mouse (\(Shortcut.area.words))") {
+                    model.capture(.area)
+                }
+                .accessibilityIdentifier("capture-area")
                 CaptureTile(title: "Record", symbol: "record.circle", symbolColor: .red, shortcut: .recording,
                             help: "Record the screen (\(Shortcut.recording.words))") {
                     model.capture(.recording)
@@ -117,6 +134,68 @@ struct CaptureBar: View {
         }
         .padding(Layout.padding)
         .frame(height: Layout.captureBarHeight)
+    }
+}
+
+/// The Record button's one setting: Quick or Demo, with what each means.
+struct RecordingPresetRow: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        // The switch sits under the Record button it belongs to; its meaning
+        // reads to the left of it.
+        HStack(spacing: Layout.spacing) {
+            Text(model.recordingPreset.meaning)
+                .font(.subheadline)
+                .foregroundStyle(Color.supportingText)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .multilineTextAlignment(.trailing)
+                .accessibilityIdentifier("recording-preset-meaning")
+            Picker("Recording", selection: $model.recordingPreset) {
+                ForEach(RecordingPreset.allCases, id: \.self) { preset in
+                    Text(preset == .quick ? "Quick" : "Demo").tag(preset)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .accessibilityLabel("Recording quality")
+            .accessibilityIdentifier("recording-preset")
+        }
+        .padding(.horizontal, Layout.padding)
+        .frame(height: Layout.presetRowHeight)
+    }
+}
+
+/// Where the captures live on this Mac. One click opens the folder.
+struct FolderFooter: View {
+    let directory: URL
+
+    /// The path with the home folder shortened, as Finder's path bar reads.
+    static func shortPath(_ url: URL) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let path = url.path
+        return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
+    }
+
+    var body: some View {
+        Button {
+            CaptureActions.openFolder(directory)
+        } label: {
+            Label("Saved in \(Self.shortPath(directory))", systemImage: "folder")
+                .font(.subheadline)
+                .foregroundStyle(Color.supportingText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .buttonStyle(.plain)
+        .help("Open the captures folder in Finder")
+        .accessibilityIdentifier("captures-folder")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Layout.padding)
+        .frame(height: Layout.footerHeight)
     }
 }
 

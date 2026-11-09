@@ -5,7 +5,7 @@ import Testing
 
 @Suite struct ShortcutTests {
     @Test func theScreenshotShortcutIsControlOptionSEverywhere() {
-        let shortcut = Shortcut.screenshot
+        let shortcut = Shortcut.area
         #expect(shortcut.words == "Control Option S")
         #expect(shortcut.glyphs == "⌃⌥S")
         #expect(shortcut.keyCode == kVK_ANSI_S)
@@ -35,11 +35,19 @@ import Testing
     /// techsmith.com/learn/tutorials/snagit/snagit-hotkeys, read 2026-11-09).
     @Test func noShortcutUsesSnagitsControlShiftKeys() {
         let snagitControlShiftKeys: Set<Character> = ["c", "o", "s", "m", "w", "e", "r", "v", "f", "d", "t", "p", " "]
-        for shortcut in [Shortcut.screenshot, .recording, .clipboard] {
+        for shortcut in Shortcut.all {
             let isControlShift = Set(shortcut.modifiers.map(\.word)) == ["Control", "Shift"]
             #expect(!(isControlShift && snagitControlShiftKeys.contains(shortcut.key)),
                     "\(shortcut.words) is one of Snagit's shortcuts")
         }
+    }
+
+    @Test func theFourShortcutsAreDistinctAndShareOneModifierSet() {
+        let keys = Shortcut.all.map { "\($0.keyCode)-\($0.carbonModifiers)" }
+        #expect(Set(keys).count == Shortcut.all.count)
+        #expect(Shortcut.all.count == 4)
+        #expect(Set(Shortcut.all.map(\.carbonModifiers)).count == 1, "one modifier set is easier to remember")
+        #expect(Shortcut.fullScreen.key == "f" && Shortcut.area.key == "s" && Shortcut.recording.key == "r" && Shortcut.clipboard.key == "v")
     }
 
     @Test func everyModifierMapsToItsOwnCarbonBitWordAndSymbol() {

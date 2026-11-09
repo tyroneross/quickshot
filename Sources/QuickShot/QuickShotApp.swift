@@ -35,13 +35,20 @@ struct MenuContent: View {
         case .recording:
             Button("Stop Recording") { model.stopRecording() }
                 .keyboardShortcut(Shortcut.recording.keyboardShortcut)
-        case .screenshot:
-            Button("Cancel Screenshot") { model.cancelCapture() }
+        case .area, .fullScreen:
+            Button("Cancel Capture") { model.cancelCapture() }
         case nil:
-            Button("Take Screenshot") { model.capture(.screenshot) }
-                .keyboardShortcut(Shortcut.screenshot.keyboardShortcut)
+            Button("Capture Full Screen") { model.capture(.fullScreen) }
+                .keyboardShortcut(Shortcut.fullScreen.keyboardShortcut)
+            Button("Capture Area") { model.capture(.area) }
+                .keyboardShortcut(Shortcut.area.keyboardShortcut)
             Button("Record Screen") { model.capture(.recording) }
                 .keyboardShortcut(Shortcut.recording.keyboardShortcut)
+            @Bindable var model = model
+            Picker("Recording Quality", selection: $model.recordingPreset) {
+                Text("Quick").tag(RecordingPreset.quick)
+                Text("Demo").tag(RecordingPreset.demo)
+            }
         }
         Divider()
         Button("Show Captures") { model.showLibrary() }
@@ -135,9 +142,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.informativeText = "Quitting stops the recording and saves it to QuickShot."
             alert.addButton(withTitle: "Keep Recording")
             alert.addButton(withTitle: "Stop, Save and Quit")
-        case .screenshot:
+        case .area, .fullScreen:
             alert.messageText = "A screenshot is in progress"
-            alert.informativeText = "Quitting closes the screenshot picker without saving."
+            alert.informativeText = "Quitting closes the screenshot without saving."
             alert.addButton(withTitle: "Keep Going")
             alert.addButton(withTitle: "Quit Anyway")
         }
@@ -145,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Wait for the tool to exit so its result is filed before the app goes.
         switch active {
         case .recording: model.stopRecording()
-        case .screenshot: model.cancelCapture()
+        case .area, .fullScreen: model.cancelCapture()
         }
         model.whenIdle { sender.reply(toApplicationShouldTerminate: true) }
         return .terminateLater
@@ -154,7 +161,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func registerHotKeys() {
         // The record shortcut starts a recording and, pressed again, stops it.
         let bindings: [(Shortcut, @MainActor (AppDelegate) -> Void)] = [
-            (.screenshot, { $0.model.capture(.screenshot) }),
+            (.fullScreen, { $0.model.capture(.fullScreen) }),
+            (.area, { $0.model.capture(.area) }),
             (.recording, { $0.model.toggleRecording() }),
             (.clipboard, { $0.showClipboard() }),
         ]

@@ -45,8 +45,16 @@ final class Harness {
         model = AppModel(
             library: CaptureLibrary(directory: captures.url, remove: { try FileManager.default.removeItem(at: $0) }),
             runner: CaptureRunner(executable: executable, scratchRoot: scratch.url),
-            screenAccess: access.screenAccess
+            screenAccess: access.screenAccess,
+            defaults: UserDefaults(suiteName: "QuickShotTests.\(UUID().uuidString)")!
         )
+        // The shrink step stands in for the real export: a copy of the movie
+        // with the name the real step would give it.
+        model.shrink = { source in
+            let small = source.deletingPathExtension().appendingPathExtension("1080p").appendingPathExtension("mp4")
+            try FileManager.default.copyItem(at: source, to: small)
+            return small
+        }
         model.showLibrary = { [unowned self] in self.windowVisible = true; self.windowEvents.append("show") }
         model.hideLibrary = { [unowned self] in self.windowVisible = false; self.windowEvents.append("hide") }
         model.isLibraryVisible = { [unowned self] in self.windowVisible }

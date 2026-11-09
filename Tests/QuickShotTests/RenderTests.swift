@@ -88,7 +88,7 @@ import Testing
     /// Expected colours come from `Banner.Tone`, the values the view draws.
     static func noticeTone(_ rep: NSBitmapImageRep, dark: Bool = false) throws -> Banner.Tone? {
         let scale = CGFloat(rep.pixelsWide) / rep.size.width
-        let y = Layout.captureBarHeight + 12
+        let y = Layout.captureBarHeight + Layout.presetRowHeight + 12
         let pixel = try #require(rep.colorAt(x: Int(1 * scale), y: Int(y * scale))?.usingColorSpace(.sRGB))
         let appearance = try #require(NSAppearance(named: dark ? .darkAqua : .aqua))
         // Compare by hue: an off-screen bitmap shifts RGB values slightly
@@ -182,7 +182,7 @@ import Testing
     @Test func nothingSavedNotice() async throws {
         let harness = try Harness(tool: Tool.cancels)
         harness.model.start()
-        harness.model.capture(.screenshot)
+        harness.model.capture(.area)
         try await harness.waitUntilIdle()
         #expect(harness.model.notice == .nothingSaved)
 
@@ -201,7 +201,8 @@ import Testing
         print("window empty: \(Int(size.width))x\(Int(size.height))")
 
         #expect(size.width == Layout.windowWidth)
-        #expect(size.height == Layout.captureBarHeight, "with no captures the window is just the two buttons")
+        #expect(size.height == Layout.captureBarHeight + Layout.presetRowHeight + Layout.footerHeight,
+                "with no captures the window is the buttons, the switch and the folder line")
         #expect((window.toolbar?.items.count ?? 0) == 0, "item actions must not show when there is nothing to act on")
     }
 
@@ -221,9 +222,9 @@ import Testing
         print("window one capture: \(Int(oneRow.width))x\(Int(oneRow.height)); twelve captures: \(Int(capped.width))x\(Int(capped.height))")
 
         #expect(oneRow.width == Layout.windowWidth)
-        #expect(oneRow.height < Layout.captureBarHeight + 190, "one row of captures should not need two rows of space")
+        #expect(oneRow.height < Layout.captureBarHeight + Layout.presetRowHeight + Layout.footerHeight + 190, "one row of captures should not need two rows of space")
         #expect(capped.height > oneRow.height)
-        #expect(capped.height == Layout.captureBarHeight + Layout.gridMaxIdealHeight, "twelve captures should stop at the scroll limit")
+        #expect(capped.height == Layout.captureBarHeight + Layout.presetRowHeight + Layout.gridMaxIdealHeight + Layout.footerHeight, "twelve captures should stop at the scroll limit")
         #expect(Self.distinctColours(image) > 12)
 
         // With a selection, all four item actions fit in the narrow title bar.

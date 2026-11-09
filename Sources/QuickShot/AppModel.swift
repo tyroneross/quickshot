@@ -31,6 +31,11 @@ final class AppModel {
     private(set) var items: [CaptureItem] = []
     /// The capture in progress, if any.
     private(set) var activeCapture: CaptureMode?
+    /// How Record records. Kept between launches.
+    var recordingPreset: RecordingPreset {
+        didSet { defaults.set(recordingPreset.rawValue, forKey: Self.presetKey) }
+    }
+    static let presetKey = "recordingPreset"
     var isCapturing: Bool { activeCapture != nil }
     var notice: Notice?
     var selection: CaptureItem.ID?
@@ -49,6 +54,12 @@ final class AppModel {
 
     @ObservationIgnored private let runner: CaptureRunner
     @ObservationIgnored private let screenAccess: ScreenAccess
+    @ObservationIgnored private let defaults: UserDefaults
+    /// Shrinks a Quick recording. Injectable: tests use a stand-in.
+    @ObservationIgnored var shrink: @Sendable (URL) async throws -> URL = { try await MovieShrinker.shrink($0) }
+    /// How long the window is given to leave the screen before a full-screen
+    /// capture, so QuickShot is not in its own picture.
+    static let fullScreenDelay: Duration = .milliseconds(300)
     @ObservationIgnored private var watcher: DirectoryWatcher?
     @ObservationIgnored private var libraryWasVisible = false
     @ObservationIgnored private var copiedReset: Task<Void, Never>?
@@ -71,11 +82,14 @@ final class AppModel {
     init(
         library: CaptureLibrary = CaptureLibrary(),
         runner: CaptureRunner = CaptureRunner(),
-        screenAccess: ScreenAccess = .system
+        screenAccess: ScreenAccess = .system,
+        defaults: UserDefaults = .standard
     ) {
         self.library = library
         self.runner = runner
         self.screenAccess = screenAccess
+        self.defaults = defaults
+        self.recordingPreset = defaults.string(forKey: Self.presetKey).flatMap(RecordingPreset.init) ?? .quick
     }
 
     var selectedItem: CaptureItem? {
@@ -148,12 +162,19 @@ final class AppModel {
         // Keep QuickShot's own window out of the picture.
         libraryWasVisible = isLibraryVisible()
         hideLibrary()
-        log.notice("capture start: \(mode.rawValue, privacy: .public)")
+        let preset = recordingPreset
+        log.notice("capture start: \(mode.rawValue, privacy: .public) \(mode == .recording ? preset.rawValue : "", privacy: .public)")
         captureTask = Task {
-            let result = await runner.run(mode)
-            activeCapture = nil
+            if mode == .fullScreen {
+                // Give the window time to leave the screen. A cancel here ends
+                // the capture before the tool starts.
+                try? await Task.sleep(for: Self.fullScreenDelay)
+            }
+            let result = Task.isCancelled ? CaptureResult.cancelled : await runner.run(mode, preset: preset)
             log.notice("capture end: \(mode.rawValue, privacy: .public) -> \(String(describing: result), privacy: .public)")
-            handle(result)
+            let final = (mode == .recording && preset == .quick) ? await shrunk(result) : result
+            activeCapture = nil
+            handle(final)
             let waiters = idleWaiters
             idleWaiters = []
             waiters.forEach { $0() }
@@ -237,13 +258,37 @@ final class AppModel {
         reload()
     }
 
+    /// Replaces each movie in a Quick recording with its 1080p version. If a
+    /// movie cannot be shrunk it is kept as recorded and the reason is shown.
+    private func shrunk(_ result: CaptureResult?) async -> CaptureResult? {
+        guard case .captured(let files)? = result else { return result }
+        var kept: [URL] = []
+        var problems: [String] = []
+        for file in files {
+            guard CaptureFormat.detect(file)?.kind == .video else { kept.append(file); continue }
+            do {
+                let small = try await shrink(file)
+                try? FileManager.default.removeItem(at: file)
+                kept.append(small)
+            } catch {
+                kept.append(file)
+                problems.append("Kept the full-size recording: \(error).")
+            }
+        }
+        if !problems.isEmpty { notice = .problem(problems.joined(separator: " ")) }
+        return .captured(kept)
+    }
+
     private func handle(_ result: CaptureResult?) {
         switch result {
         case .captured(let files):
             let outcome = CaptureFiler.fileAll(files, into: library.directory)
             reload()
             if let newest = outcome.filed.last { selection = newest.lastPathComponent }
-            if !outcome.problems.isEmpty { notice = .problem(outcome.problems.joined(separator: " ")) }
+            if !outcome.problems.isEmpty {
+                let earlier: [String] = if case .problem(let text)? = notice { [text] } else { [] }
+                notice = .problem((earlier + outcome.problems).joined(separator: " "))
+            }
             showLibrary()
         case .cancelled:
             notice = .nothingSaved

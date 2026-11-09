@@ -150,7 +150,7 @@ struct ClipboardLibraryView: View {
             return model.status == nil
                 ? "Nothing copied yet. Copy text, an image or a file in any app and it appears here."
                 : "Nothing copied yet."
-        case .captures: return "No captures yet. Press \(Shortcut.screenshot.words) to take a screenshot."
+        case .captures: return "No captures yet. Press \(Shortcut.area.words) to capture an area, or \(Shortcut.fullScreen.words) for the full screen."
         case .collection: return "This collection is empty. Select an item in History and choose Add to Collection."
         }
     }

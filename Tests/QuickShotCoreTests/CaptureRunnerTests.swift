@@ -11,7 +11,7 @@ import TestSupport
         let tool = try folder.script("\(Fixture.pngPrintf) > \"$OUT\"")
         let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
 
-        let result = await runner.run(.screenshot)
+        let result = await runner.run(.area)
 
         guard case .captured(let files)? = result else {
             Issue.record("expected a captured file, got \(String(describing: result))")
@@ -40,7 +40,7 @@ import TestSupport
         let tool = try folder.script("exit 1")
         let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
 
-        #expect(await runner.run(.screenshot) == .cancelled)
+        #expect(await runner.run(.area) == .cancelled)
         #expect(try scratchFolders(in: folder).isEmpty)
     }
 
@@ -49,7 +49,7 @@ import TestSupport
         let tool = try folder.script("echo 'could not create image from display' >&2; exit 1")
         let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
 
-        #expect(await runner.run(.screenshot) == .failed("could not create image from display"))
+        #expect(await runner.run(.area) == .failed("could not create image from display"))
     }
 
     @Test func anEmptyFileDoesNotCountAsACapture() async throws {
@@ -57,7 +57,7 @@ import TestSupport
         let tool = try folder.script(": > \"$OUT\"")
         let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
 
-        #expect(await runner.run(.screenshot) == .cancelled)
+        #expect(await runner.run(.area) == .cancelled)
     }
 
     @Test func aMissingToolIsAFailureNotACrash() async throws {
@@ -67,7 +67,7 @@ import TestSupport
             scratchRoot: folder.url
         )
 
-        guard case .failed(let message)? = await runner.run(.screenshot) else {
+        guard case .failed(let message)? = await runner.run(.area) else {
             Issue.record("expected a failure")
             return
         }
@@ -105,9 +105,9 @@ import TestSupport
         """)
         let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
 
-        async let first = runner.run(.screenshot)
+        async let first = runner.run(.area)
         try await waitForFile(folder.url.appendingPathComponent("started"))
-        #expect(await runner.run(.screenshot) == nil)
+        #expect(await runner.run(.area) == nil)
         runner.cancel()
         #expect(await first == .cancelled)
     }
@@ -122,7 +122,7 @@ import TestSupport
         """)
         let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
 
-        async let pending = runner.run(.screenshot)
+        async let pending = runner.run(.area)
         try await waitForFile(folder.url.appendingPathComponent("started"))
         runner.cancel()
         #expect(await pending == .cancelled)
@@ -137,7 +137,7 @@ import TestSupport
         let tool = try folder.script("echo 'first line of the error' >&2; head -c 400000 /dev/zero | tr '\\0' 'x' >&2; exit 1")
         let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
 
-        guard case .failed(let message)? = await runner.run(.screenshot) else {
+        guard case .failed(let message)? = await runner.run(.area) else {
             Issue.record("expected a failure")
             return
         }
@@ -156,7 +156,7 @@ import TestSupport
         let task = Task { () -> CaptureResult? in
             // Cancelled before run() is entered.
             await Task.yield()
-            return await runner.run(.screenshot)
+            return await runner.run(.area)
         }
         task.cancel()
 
@@ -173,7 +173,7 @@ import TestSupport
         """)
         let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
 
-        let task = Task { await runner.run(.screenshot) }
+        let task = Task { await runner.run(.area) }
         try await waitForFile(folder.url.appendingPathComponent("started"))
         task.cancel()
 
@@ -186,7 +186,7 @@ import TestSupport
         let tool = try folder.script(": > \"$OUT\"")
         let runner = CaptureRunner(executable: tool, scratchRoot: folder.url)
 
-        #expect(await runner.run(.screenshot) == .cancelled)
+        #expect(await runner.run(.area) == .cancelled)
         #expect(try leftovers(in: folder).isEmpty)
     }
 
@@ -223,7 +223,7 @@ import TestSupport
         runner.cancel()
 
         // The stale cancel must not leak into the next capture.
-        guard case .captured? = await runner.run(.screenshot) else {
+        guard case .captured? = await runner.run(.area) else {
             Issue.record("a cancel issued while idle cancelled the next capture")
             return
         }

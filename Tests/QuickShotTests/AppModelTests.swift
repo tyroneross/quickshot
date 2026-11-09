@@ -11,7 +11,7 @@ import Testing
         let harness = try Harness(tool: Tool.writesPNG)
         harness.model.start()
 
-        harness.model.capture(.screenshot)
+        harness.model.capture(.area)
         #expect(harness.model.isCapturing)
         try await harness.waitUntilIdle()
 
@@ -28,7 +28,7 @@ import Testing
         let harness = try Harness(tool: Tool.writesPNG)
         harness.model.start()
 
-        harness.model.capture(.screenshot)
+        harness.model.capture(.area)
         #expect(!harness.windowVisible, "the window must be out of the picture while the picker is open")
         try await harness.waitUntilIdle()
 
@@ -43,7 +43,7 @@ import Testing
         #expect(harness.access.requests == 0, "no system prompt until a capture is asked for")
         #expect(!harness.model.askedForAccess, "the first step shown is turning it on")
 
-        harness.model.capture(.screenshot)
+        harness.model.capture(.area)
         try await Task.sleep(for: .milliseconds(200))
 
         #expect(!harness.model.isCapturing)
@@ -80,7 +80,7 @@ import Testing
         reopening.model.launchNewInstance = { _ in launches += 1 }
         reopening.model.start()
         reopening.model.reopen()
-        reopening.model.capture(.screenshot)
+        reopening.model.capture(.area)
         #expect(!reopening.model.isCapturing, "a capture started while the app was reopening")
         #expect(!reopening.toolRan)
 
@@ -143,7 +143,7 @@ import Testing
         let harness = try Harness(tool: Tool.cancels, windowVisible: false)
         harness.model.start()
 
-        harness.model.capture(.screenshot)
+        harness.model.capture(.area)
         try await harness.waitUntilIdle()
 
         #expect(harness.windowEvents == ["hide"])
@@ -154,7 +154,7 @@ import Testing
         let harness = try Harness(tool: Tool.fails)
         harness.model.start()
 
-        harness.model.capture(.screenshot)
+        harness.model.capture(.area)
         try await harness.waitUntilIdle()
 
         #expect(harness.model.notice == .problem("Capture failed. The system capture tool reported: could not create image from display"))
@@ -165,7 +165,7 @@ import Testing
         let harness = try Harness(tool: Tool.waits)
         harness.model.start()
 
-        harness.model.capture(.screenshot)
+        harness.model.capture(.area)
         try await harness.waitUntil { harness.toolRan }
         harness.model.capture(.recording)
         #expect(harness.windowEvents == ["hide"], "the second request must not touch the window")
@@ -174,6 +174,91 @@ import Testing
         try await harness.waitUntilIdle()
         #expect(!harness.model.isCapturing)
         #expect(harness.model.notice == .nothingSaved)
+    }
+
+    /// Quick is the default; a Quick recording is handed to the shrink step
+    /// and only the small file is kept.
+    @Test func aQuickRecordingIsShrunkAndOnlyTheSmallFileIsFiled() async throws {
+        let harness = try Harness(tool: Tool.recordsUntilInterrupted)
+        harness.model.start()
+        #expect(harness.model.recordingPreset == .quick)
+        let shrunk = Counter()
+        let original = harness.model.shrink
+        harness.model.shrink = { source in shrunk.add(); return try await original(source) }
+
+        harness.model.capture(.recording)
+        try await harness.waitUntil { harness.toolRan }
+        harness.model.stopRecording()
+        try await harness.waitUntilIdle()
+
+        #expect(shrunk.count == 1)
+        #expect(harness.model.items.count == 1, "the full-size movie must not be filed beside the small one")
+        #expect(harness.model.items.first?.kind == .video)
+        #expect(harness.model.notice == nil)
+    }
+
+    @Test func aDemoRecordingIsKeptAsRecorded() async throws {
+        let harness = try Harness(tool: Tool.recordsUntilInterrupted)
+        harness.model.start()
+        harness.model.recordingPreset = .demo
+        harness.model.shrink = { _ in Issue.record("a Demo recording must not be shrunk"); throw CocoaError(.fileNoSuchFile) }
+
+        harness.model.capture(.recording)
+        try await harness.waitUntil { harness.toolRan }
+        harness.model.stopRecording()
+        try await harness.waitUntilIdle()
+
+        #expect(harness.model.items.count == 1)
+        #expect(harness.model.notice == nil)
+    }
+
+    /// A failed shrink loses nothing: the recording is filed as made and the
+    /// person is told why it is large.
+    @Test func aFailedShrinkKeepsTheFullSizeRecordingAndSaysSo() async throws {
+        let harness = try Harness(tool: Tool.recordsUntilInterrupted)
+        harness.model.start()
+        harness.model.shrink = { _ in throw MovieShrinker.Failure.exportFailed("no encoder") }
+
+        harness.model.capture(.recording)
+        try await harness.waitUntil { harness.toolRan }
+        harness.model.stopRecording()
+        try await harness.waitUntilIdle()
+
+        #expect(harness.model.items.count == 1)
+        #expect(harness.model.items.first?.kind == .video)
+        guard case .problem(let text)? = harness.model.notice else { Issue.record("expected a notice"); return }
+        #expect(text.contains("Kept the full-size recording") && text.contains("no encoder"))
+    }
+
+    @Test func theRecordingPresetIsRememberedBetweenLaunches() throws {
+        let suite = "QuickShotTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let first = AppModel(screenAccess: ScreenAccess(isGranted: { false }, request: {}), defaults: defaults)
+        #expect(first.recordingPreset == .quick)
+        first.recordingPreset = .demo
+        let second = AppModel(screenAccess: ScreenAccess(isGranted: { false }, request: {}), defaults: defaults)
+        #expect(second.recordingPreset == .demo)
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    /// The window leaves the screen first, and only then does the tool run,
+    /// so QuickShot is not in its own full-screen picture.
+    @Test func aFullScreenCaptureHidesTheWindowBeforeTheToolRuns() async throws {
+        let harness = try Harness(tool: Tool.writesPNG)
+        harness.model.start()
+        let started = ContinuousClock.now
+
+        harness.model.capture(.fullScreen)
+        #expect(harness.model.activeCapture == .fullScreen)
+        #expect(!harness.windowVisible)
+        #expect(!harness.toolRan, "the tool must wait for the window to go")
+        try await harness.waitUntil { harness.toolRan }
+        #expect(ContinuousClock.now - started >= AppModel.fullScreenDelay)
+        try await harness.waitUntilIdle()
+
+        #expect(harness.model.items.count == 1)
+        #expect(harness.model.items.first?.kind == .image)
+        #expect(harness.windowVisible)
     }
 
     @Test func stoppingARecordingFilesTheMovieAndSelectsIt() async throws {
@@ -229,12 +314,12 @@ import Testing
     @Test func stopRecordingDoesNothingWhileAScreenshotIsBeingChosen() async throws {
         let harness = try Harness(tool: Tool.recordsUntilInterrupted)
         harness.model.start()
-        harness.model.capture(.screenshot)
+        harness.model.capture(.area)
         try await harness.waitUntil { harness.toolRan }
 
         harness.model.stopRecording()
         try await Task.sleep(for: .milliseconds(300))
-        #expect(harness.model.activeCapture == .screenshot, "the screenshot picker must not be interrupted by Stop Recording")
+        #expect(harness.model.activeCapture == .area, "the screenshot picker must not be interrupted by Stop Recording")
 
         harness.model.cancelCapture()
         try await harness.waitUntilIdle()
@@ -306,7 +391,7 @@ import Testing
         let harness = try Harness(tool: Tool.waits)
         harness.model.start()
 
-        harness.model.capture(.screenshot)
+        harness.model.capture(.area)
         harness.model.cancelCapture()
         try await harness.waitUntilIdle()
         try await Task.sleep(for: .milliseconds(300))
@@ -410,4 +495,12 @@ import Testing
         #expect(pasteboard.data(forType: .png) == nil)
         #expect(pasteboard.data(forType: .tiff) == nil)
     }
+}
+
+/// A thread-safe tally for closures that run off the main actor.
+final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func add() { lock.withLock { value += 1 } }
+    var count: Int { lock.withLock { value } }
 }

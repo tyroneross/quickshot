@@ -30,5 +30,7 @@
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>QuickShot records your microphone only during a Demo recording.</string>
 </dict>
 </plist>

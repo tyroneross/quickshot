@@ -70,7 +70,10 @@ struct Shortcut: Sendable {
     // Control Option, not Control Shift: Snagit uses Control Shift S (Image
     // Capture), R (Repeat Last Capture) and V (Video Capture), and wins those
     // keys whenever it is running (TechSmith hotkey guide, checked 2026-11-09).
-    static let screenshot = Shortcut(keyCode: kVK_ANSI_S, key: "s", modifiers: [.control, .option])
+    static let fullScreen = Shortcut(keyCode: kVK_ANSI_F, key: "f", modifiers: [.control, .option])
+    static let area = Shortcut(keyCode: kVK_ANSI_S, key: "s", modifiers: [.control, .option])
     static let recording = Shortcut(keyCode: kVK_ANSI_R, key: "r", modifiers: [.control, .option])
     static let clipboard = Shortcut(keyCode: kVK_ANSI_V, key: "v", modifiers: [.control, .option])
+    /// Every system-wide shortcut, for registration and for the tests.
+    static let all: [Shortcut] = [fullScreen, area, recording, clipboard]
 }
