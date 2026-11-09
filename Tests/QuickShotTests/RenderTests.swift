@@ -228,6 +228,19 @@ import Testing
         let toolbar = try #require(manyWindow.toolbar)
         #expect(toolbar.items.count == 4)
         #expect(toolbar.visibleItems?.count == toolbar.items.count, "an item action is hidden in the overflow menu")
+
+        // Symbol-only buttons must still carry their names for assistive technology.
+        func accessibleNames(in view: NSView) -> [String] {
+            let own = [view.accessibilityLabel(), view.accessibilityTitle()].compactMap { $0 }.filter { !$0.isEmpty }
+            return own + view.subviews.flatMap(accessibleNames)
+        }
+        let names = toolbar.items.flatMap { item in
+            [item.label].filter { !$0.isEmpty } + (item.view.map(accessibleNames) ?? [])
+        }
+        print("toolbar accessible names: \(names)")
+        for expected in ["Copy", "Annotate", "Show in Finder", "Move to Trash"] {
+            #expect(names.contains(expected), "the \(expected) button has no accessible name")
+        }
     }
 
     /// The window resizes as captures come and go, keeping its top edge still.

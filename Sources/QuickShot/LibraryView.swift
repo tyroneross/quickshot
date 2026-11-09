@@ -184,10 +184,12 @@ struct ToolbarOrMenuLabelStyle: LabelStyle {
     let iconOnly: Bool
 
     func makeBody(configuration: Configuration) -> some View {
+        // Both branches keep the title: `.iconOnly` hides it visually but it
+        // remains the button's accessible name.
         if iconOnly {
-            configuration.icon
+            Label(configuration).labelStyle(.iconOnly)
         } else {
-            Label { configuration.title } icon: { configuration.icon }
+            Label(configuration).labelStyle(.titleAndIcon)
         }
     }
 }
