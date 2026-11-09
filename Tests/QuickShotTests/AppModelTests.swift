@@ -375,6 +375,7 @@ import Testing
         harness.model.capture(.area)
         try await harness.waitUntilIdle()
         #expect(harness.flashes == 1)
+        #expect(harness.flashRects == [nil], "no mouse was seen in a test, so the area is unknown and every screen is framed")
         #expect(harness.copied.count == 1)
         #expect(harness.copied.first?.id == harness.model.selection)
         #expect(harness.model.copiedItem == harness.model.selection, "the card says Copied")
@@ -763,4 +764,16 @@ final class Gate: @unchecked Sendable {
 final class Notified {
     private(set) var items: [CaptureItem] = []
     func record(_ item: CaptureItem) { items.append(item) }
+}
+
+@MainActor
+@Suite struct SelectionTrackerTests {
+    @Test func aDragGivesTheRectangleBetweenPressAndRelease() {
+        let rect = SelectionTracker.rect(from: NSPoint(x: 300, y: 500), to: NSPoint(x: 100, y: 200))
+        #expect(rect == NSRect(x: 100, y: 200, width: 200, height: 300))
+    }
+
+    @Test func nothingSeenMeansNoArea() {
+        #expect(SelectionTracker().selection() == nil)
+    }
 }

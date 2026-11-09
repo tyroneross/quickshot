@@ -34,6 +34,7 @@ final class Harness {
     let appRecorder = FakeAppRecorder()
     private(set) var windowVisible: Bool
     private(set) var flashes = 0
+    private(set) var flashRects: [NSRect?] = []
     private(set) var copied: [CaptureItem] = []
     private(set) var windowEvents: [String] = []
 
@@ -51,7 +52,7 @@ final class Harness {
             screenAccess: access.screenAccess,
             defaults: UserDefaults(suiteName: "QuickShotTests.\(UUID().uuidString)")!
         )
-        model.flash = { [unowned self] in flashes += 1 }
+        model.flash = { [unowned self] rect in flashes += 1; flashRects.append(rect) }
         model.copyToClipboard = { [unowned self] item in copied.append(item); return true }
         model.shrinkImage = { $0 }
         model.countdownTick = .milliseconds(20)

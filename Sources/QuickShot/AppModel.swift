@@ -90,8 +90,13 @@ final class AppModel {
     @ObservationIgnored var notify: @MainActor (CaptureItem, _ copied: Bool) async -> Bool = { _, _ in false }
     /// Halves a Retina screenshot. Injectable: tests use a stand-in.
     @ObservationIgnored var shrinkImage: @Sendable (URL) throws -> URL = { try ImageShrinker.shrink($0) }
-    /// Shows the flash. Injectable: tests count it.
-    @ObservationIgnored var flash: @MainActor () -> Void = { CaptureFlash.show() }
+    /// Frames what was captured: the given area, or every screen when `nil`.
+    /// Injectable: tests record the calls.
+    @ObservationIgnored var flash: @MainActor (NSRect?) -> Void = { rect in
+        if let rect { CaptureFlash.show(around: rect) } else { CaptureFlash.showScreens() }
+    }
+    /// Watches the mouse while the crosshair is up, for the flash.
+    @ObservationIgnored var selectionTracker = SelectionTracker()
     /// Puts a capture on the clipboard. Injectable: tests use a scratch board.
     @ObservationIgnored var copyToClipboard: @MainActor (CaptureItem) -> Bool = { CaptureActions.copy($0) }
     /// Records one app or window. Injectable: tests use a stand-in.
@@ -213,6 +218,7 @@ final class AppModel {
         // Keep QuickShot's own window out of the picture.
         libraryWasVisible = isLibraryVisible()
         hideLibrary()
+        if mode == .area { selectionTracker.start() }
         let preset = recordingPreset
         let target = recordingTarget
         let countsDown = countsDown
@@ -233,6 +239,7 @@ final class AppModel {
                 result = Task.isCancelled ? .cancelled : await runner.run(mode, target: target, preset: preset)
             }
             log.notice("capture end: \(mode.rawValue, privacy: .public) -> \(String(describing: result), privacy: .public)")
+            selectionTracker.stop()
             var final = result
             if mode == .recording, preset == .quick, case .captured? = result {
                 isSavingRecording = true
@@ -401,7 +408,14 @@ final class AppModel {
     private func handle(_ result: CaptureResult?, mode: CaptureMode) {
         switch result {
         case .captured(let files):
-            if mode != .recording { flash() }
+            switch mode {
+            case .fullScreen: flash(nil)
+            case .area:
+                let area = selectionTracker.selection()
+                log.notice("flash area: \(area.map { NSStringFromRect($0) } ?? "unknown", privacy: .public)")
+                flash(area)
+            case .recording: break
+            }
             let outcome = CaptureFiler.fileAll(files, into: library.directory)
             reload()
             if !outcome.problems.isEmpty {
