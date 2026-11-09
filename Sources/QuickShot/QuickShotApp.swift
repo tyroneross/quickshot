@@ -1,5 +1,6 @@
 import AppKit
 import ClipboardCore
+import os
 import QuickShotCore
 import SwiftUI
 
@@ -63,6 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The clipboard library, or `nil` when its store could not be opened.
     private(set) var clipboard: ClipboardModel?
     private let hotKeys = HotKeyCenter()
+    /// One line per shortcut press and per registration, so "the shortcut
+    /// does nothing" can be split into "never arrived" and "arrived, then
+    /// refused" from the system log.
+    private let log = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "ai.rosslabs.quickshot", category: "hotkey")
     private var window: NSWindow?
     private var clipboardWindow: NSWindow?
 
@@ -154,8 +160,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ]
         let unavailable = bindings.compactMap { shortcut, action -> String? in
             let registered = hotKeys.register(keyCode: shortcut.keyCode, modifiers: shortcut.carbonModifiers) { [weak self] in
-                if let self { action(self) }
+                guard let self else { return }
+                log.notice("hot key pressed: \(shortcut.words, privacy: .public)")
+                action(self)
             }
+            log.notice("hot key \(shortcut.words, privacy: .public) registered: \(registered, privacy: .public)")
             return registered ? nil : shortcut.words
         }
         if !unavailable.isEmpty, model.notice == nil {

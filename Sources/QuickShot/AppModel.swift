@@ -137,6 +137,7 @@ final class AppModel {
         guard screenAccess.isGranted() else {
             // Without access the tool can exit cleanly with only the desktop
             // wallpaper in the image, so nothing is captured until it is granted.
+            log.notice("capture refused: \(mode.rawValue, privacy: .public), Screen Recording not granted")
             requestScreenAccess()
             notice = .permissionNeeded
             showLibrary()
