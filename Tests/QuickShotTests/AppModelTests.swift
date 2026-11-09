@@ -95,7 +95,7 @@ import Testing
         harness.model.capture(.screenshot)
         try await harness.waitUntilIdle()
 
-        #expect(harness.model.notice == .failed("could not create image from display"))
+        #expect(harness.model.notice == .problem("Capture failed. The system capture tool reported: could not create image from display"))
         #expect(harness.windowVisible)
     }
 

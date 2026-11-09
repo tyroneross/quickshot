@@ -23,7 +23,8 @@ final class AppModel {
     enum Notice: Equatable {
         case permissionNeeded
         case nothingSaved
-        case failed(String)
+        /// Something went wrong. The text is shown as written.
+        case problem(String)
     }
 
     private(set) var items: [CaptureItem] = []
@@ -65,7 +66,7 @@ final class AppModel {
         do {
             try library.ensureDirectory()
         } catch {
-            notice = .failed("Could not create \(library.directory.path): \(error.localizedDescription)")
+            notice = .problem("Could not create \(library.directory.path): \(error.localizedDescription)")
         }
         reload()
         watcher = DirectoryWatcher(directory: library.directory) { [weak self] in
@@ -116,7 +117,7 @@ final class AppModel {
 
     func copy(_ item: CaptureItem) {
         guard CaptureActions.copy(item) else {
-            notice = .failed("Could not copy \(item.url.lastPathComponent) to the clipboard.")
+            notice = .problem("Could not copy \(item.url.lastPathComponent) to the clipboard.")
             return
         }
         copiedItem = item.id
@@ -131,7 +132,7 @@ final class AppModel {
         do {
             try library.trash(item)
         } catch {
-            notice = .failed("Could not move \(item.url.lastPathComponent) to the Trash: \(error.localizedDescription)")
+            notice = .problem("Could not move \(item.url.lastPathComponent) to the Trash: \(error.localizedDescription)")
         }
         reload()
     }
@@ -142,13 +143,13 @@ final class AppModel {
             let outcome = CaptureFiler.fileAll(files, into: library.directory)
             reload()
             if let newest = outcome.filed.last { selection = newest.lastPathComponent }
-            if !outcome.problems.isEmpty { notice = .failed(outcome.problems.joined(separator: " ")) }
+            if !outcome.problems.isEmpty { notice = .problem(outcome.problems.joined(separator: " ")) }
             showLibrary()
         case .cancelled:
             notice = .nothingSaved
             if libraryWasVisible { showLibrary() }
         case .failed(let message):
-            notice = .failed(message)
+            notice = .problem("Capture failed. The system capture tool reported: \(message)")
             showLibrary()
         case nil:
             break

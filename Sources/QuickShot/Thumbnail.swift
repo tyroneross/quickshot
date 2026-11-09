@@ -16,6 +16,12 @@ struct ThumbnailView: View {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
+                if item.kind == .video {
+                    Image(systemName: "play.circle.fill")
+                        .font(.largeTitle)
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, .black.opacity(0.55))
+                }
             } else {
                 Image(systemName: item.kind == .image ? "photo" : "film")
                     .font(.title)

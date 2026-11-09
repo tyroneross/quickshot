@@ -40,7 +40,7 @@ struct LibraryView: View {
                 CaptureGrid()
             }
         }
-        .frame(minWidth: 480, minHeight: 360)
+        .frame(minWidth: LibraryWindow.minimumContentSize.width, minHeight: LibraryWindow.minimumContentSize.height)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 CaptureControls()
@@ -154,14 +154,6 @@ struct CaptureCard: View {
                 ThumbnailView(item: item)
                     .aspectRatio(4 / 3, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay {
-                        if item.kind == .video {
-                            Image(systemName: "play.circle.fill")
-                                .font(.largeTitle)
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, .black.opacity(0.55))
-                        }
-                    }
                     .overlay(alignment: .topTrailing) {
                         if isSelected {
                             Image(systemName: "checkmark.circle.fill")
@@ -226,7 +218,7 @@ struct EmptyLibraryView: View {
                 }
                 .controlSize(.large)
             }
-            Text("Captures are saved to \(model.library.directory.path(percentEncoded: false)).")
+            Text("Captures are saved to \((model.library.directory.path as NSString).abbreviatingWithTildeInPath).")
                 .font(.subheadline)
                 .foregroundStyle(Color.supportingText)
                 .multilineTextAlignment(.center)
@@ -248,8 +240,8 @@ struct NoticeBanner: View {
                    onDismiss: { model.notice = nil })
         case .nothingSaved:
             Banner(tone: .info, text: Copy.nothingSaved, onDismiss: { model.notice = nil })
-        case .failed(let message):
-            Banner(tone: .error, text: "Capture failed. \(message)", onDismiss: { model.notice = nil })
+        case .problem(let message):
+            Banner(tone: .error, text: message, onDismiss: { model.notice = nil })
         }
     }
 }

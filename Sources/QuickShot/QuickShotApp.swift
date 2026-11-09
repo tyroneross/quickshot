@@ -99,17 +99,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             recording ? nil : Copy.recordShortcut,
         ].compactMap { $0 }
         if !unavailable.isEmpty, model.notice == nil {
-            model.notice = .failed("Another app already uses \(unavailable.joined(separator: " and ")). The buttons and the menu bar item still work.")
+            model.notice = .problem("Another app already uses \(unavailable.joined(separator: " and ")). The buttons and the menu bar item still work.")
         }
     }
 
     private func showLibrary() {
-        if window == nil { window = makeWindow() }
+        if window == nil { window = LibraryWindow.make(model: model) }
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
     }
+}
 
-    private func makeWindow() -> NSWindow {
+/// Builds the one library window.
+@MainActor
+enum LibraryWindow {
+    static let minimumContentSize = NSSize(width: 480, height: 360)
+    static let defaultContentSize = NSSize(width: 860, height: 560)
+
+    static func make(model: AppModel) -> NSWindow {
         let hosting = NSHostingController(rootView: LibraryView().environment(model))
         hosting.sceneBridgingOptions = [.toolbars]
         let window = NSWindow(contentViewController: hosting)
@@ -118,8 +125,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 480, height: 360)
-        window.setContentSize(NSSize(width: 720, height: 520))
+        window.contentMinSize = minimumContentSize
+        window.setContentSize(defaultContentSize)
         window.center()
         window.setFrameAutosaveName("QuickShotLibrary")
         return window
