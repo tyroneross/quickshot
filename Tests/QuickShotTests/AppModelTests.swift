@@ -72,6 +72,32 @@ import Testing
         #expect(quits == 1)
     }
 
+    /// A capture and a reopen must never overlap, or quitting could be
+    /// cancelled and leave two copies of the app running.
+    @Test func captureAndReopenExcludeEachOther() async throws {
+        let reopening = try Harness(tool: Tool.writesPNG)
+        var launches = 0
+        reopening.model.launchNewInstance = { _ in launches += 1 }
+        reopening.model.start()
+        reopening.model.reopen()
+        reopening.model.capture(.screenshot)
+        #expect(!reopening.model.isCapturing, "a capture started while the app was reopening")
+        #expect(!reopening.toolRan)
+
+        let capturing = try Harness(tool: Tool.waits)
+        var secondLaunches = 0
+        capturing.model.launchNewInstance = { _ in secondLaunches += 1 }
+        capturing.model.start()
+        capturing.model.capture(.recording)
+        try await capturing.waitUntil { capturing.toolRan }
+        capturing.model.reopen()
+        #expect(secondLaunches == 0, "a reopen started during a capture")
+        #expect(!capturing.model.isReopening)
+        capturing.model.cancelCapture()
+        try await capturing.waitUntilIdle()
+        #expect(launches == 1)
+    }
+
     @Test func aFailedReopenKeepsTheAppRunningAndSaysWhy() throws {
         let harness = try Harness(tool: Tool.writesPNG, granted: false)
         var quits = 0

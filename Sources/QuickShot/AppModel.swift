@@ -132,7 +132,8 @@ final class AppModel {
 
     /// Opens the system picker. Ignored while a capture is already running.
     func capture(_ mode: CaptureMode) {
-        guard !isCapturing else { return }
+        // Not while the app is reopening: this copy is about to quit.
+        guard !isCapturing, !isReopening else { return }
         guard screenAccess.isGranted() else {
             // Without access the tool can exit cleanly with only the desktop
             // wallpaper in the image, so nothing is captured until it is granted.
@@ -168,7 +169,9 @@ final class AppModel {
     /// quits only after the new one has started; if that fails it stays open
     /// and says why.
     func reopen() {
-        guard !isReopening else { return }
+        // Not during a capture: quitting would then ask to keep it, and
+        // keeping it would leave two copies of the app running.
+        guard !isReopening, !isCapturing else { return }
         isReopening = true
         launchNewInstance { [weak self] failure in
             guard let self else { return }
