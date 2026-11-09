@@ -81,6 +81,11 @@ public final class ClipStore {
         return try insert(candidate, hash: hash, at: now, inHistory: true)
     }
 
+    /// The stored item with exactly this content, if there is one.
+    public func find(_ candidate: ClipCandidate) throws -> ClipItem? {
+        try items(where: "hash = ?", [.text(Self.hash(candidate))]).first
+    }
+
     /// Returns the item for some content without recording a copy: an existing
     /// item is returned untouched, and a new one is created outside History.
     /// Used to put a QuickShot capture into a collection, which is not a copy.

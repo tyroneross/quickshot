@@ -16,8 +16,12 @@ final class ClipboardHarness {
     let model: ClipboardModel
     var captures: [CaptureItem] = []
     var denied = false
+    let defaults: UserDefaults
+    private let defaultsName = "quickshot-test-\(UUID().uuidString)"
 
-    init() throws {
+    init(paused: Bool = false) throws {
+        defaults = UserDefaults(suiteName: defaultsName)!
+        defaults.set(paused, forKey: ClipboardModel.pausedKey)
         folder = try TempFolder()
         store = try ClipStore(directory: folder.url.appendingPathComponent("store"))
         pasteboard.clearContents()
@@ -25,12 +29,16 @@ final class ClipboardHarness {
         var isDenied: () -> Bool = { false }
         model = ClipboardModel(
             store: store, pasteboard: pasteboard,
-            captures: { readCaptures() }, frontmostApp: { "com.example.editor" }, accessDenied: { isDenied() })
+            captures: { readCaptures() }, defaults: defaults,
+            frontmostApp: { "com.example.editor" }, accessDenied: { isDenied() })
         readCaptures = { [unowned self] in captures }
         isDenied = { [unowned self] in denied }
     }
 
-    isolated deinit { pasteboard.releaseGlobally() }
+    isolated deinit {
+        pasteboard.releaseGlobally()
+        defaults.removePersistentDomain(forName: defaultsName)
+    }
 
     /// Simulates another app copying text, then lets the monitor notice.
     func copyElsewhere(_ text: String) {
@@ -80,13 +88,13 @@ final class ClipboardHarness {
         #expect(harness.model.copiedEntry == older.id)
     }
 
-    @Test func exportSavesACopyGivesAReceiptAndKeepsTheItem() throws {
+    @Test func exportSavesACopyGivesAReceiptAndKeepsTheItem() async throws {
         let harness = try ClipboardHarness()
         harness.copyElsewhere("export me")
         let entry = try #require(harness.model.entries.first)
         let destination = harness.folder.url.appendingPathComponent("Exports")
 
-        harness.model.export(entry, to: destination)
+        await harness.model.export(entry, to: destination).value
 
         let written = try FileManager.default.contentsOfDirectory(atPath: destination.path)
         #expect(written.count == 1)
@@ -96,15 +104,36 @@ final class ClipboardHarness {
         #expect(harness.model.problem == nil)
     }
 
-    @Test func exportingACaptureCopiesTheFileAndLeavesTheOriginal() throws {
+    @Test func exportingACaptureCopiesTheFileAndLeavesTheOriginal() async throws {
         let harness = try ClipboardHarness()
         let capture = try harness.addCapture(named: "Screenshot A.png")
         let destination = harness.folder.url.appendingPathComponent("Exports")
 
-        harness.model.export(.capture(capture), to: destination)
+        await harness.model.export(.capture(capture), to: destination).value
 
         #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent("Screenshot A.png").path))
         #expect(FileManager.default.fileExists(atPath: capture.url.path))
+        #expect(harness.model.receipt?.contains("Screenshot A.png") == true)
+    }
+
+    /// The capture was renamed or trashed after it joined a collection.
+    @Test func aCollectedCaptureThatWasDeletedIsReportedNotCopied() async throws {
+        let harness = try ClipboardHarness()
+        let capture = try harness.addCapture(named: "Screenshot gone.png")
+        let collection = try #require(harness.model.createCollection(named: "Bugs"))
+        harness.model.add(.capture(capture), to: collection)
+        harness.model.section = .collection(collection.id)
+        let held = try #require(harness.model.entries.first)
+        try FileManager.default.removeItem(at: capture.url)
+
+        harness.model.copy(held)
+        #expect(harness.model.copiedEntry == nil, "a dead reference must not report Copied")
+        #expect(harness.model.problem?.contains("moved or deleted") == true)
+
+        harness.model.problem = nil
+        await harness.model.export(held, to: harness.folder.url.appendingPathComponent("Exports")).value
+        #expect(harness.model.problem == "Screenshot gone.png was moved or deleted, so nothing was saved.")
+        #expect(harness.model.receipt == nil)
     }
 
     @Test func aCaptureJoinsACollectionAsAReferenceToItsFile() throws {
@@ -121,9 +150,11 @@ final class ClipboardHarness {
         let held = try #require(harness.model.clips.first)
         #expect(held.kind == .files)
         #expect(held.filePaths == [capture.url.path], "the capture is referenced in place, not copied")
+        #expect(try harness.store.items(in: .history).isEmpty, "adding a capture to a collection is not a copy in History")
 
         harness.model.remove(entry, from: collection)
         #expect(harness.model.clips.isEmpty)
+        #expect(try harness.store.find(.files([capture.url])) == nil, "the unused reference is removed")
     }
 
     @Test func deletingRemovesACopiedItemButNeverACapture() throws {
@@ -191,12 +222,40 @@ final class ClipboardHarness {
         harness.model.monitor.tick()
         #expect(harness.model.monitorState == .running)
 
+        #expect(harness.model.status == nil)
         harness.model.togglePause()
         #expect(harness.model.isPaused)
+        #expect(harness.model.status == .paused)
         harness.copyElsewhere("while paused")
         #expect(!harness.titles.contains("while paused"))
         harness.model.togglePause()
         #expect(!harness.model.isPaused)
+    }
+
+    /// Criterion C6: a blocked clipboard is stated, with the way to fix it.
+    @Test func aBlockedClipboardGivesAStatusThatNamesTheFix() throws {
+        let harness = try ClipboardHarness()
+        harness.denied = true
+        harness.model.monitor.tick()
+
+        #expect(harness.model.status == .blocked)
+        #expect(harness.model.status?.message.contains("Paste from Other Apps") == true)
+        #expect(harness.model.status?.actionTitle == "Open Settings")
+    }
+
+    /// Pausing to copy something private must hold across a relaunch.
+    @Test func aPauseIsRememberedAcrossLaunches() throws {
+        let first = try ClipboardHarness()
+        first.model.togglePause()
+        #expect(first.defaults.bool(forKey: ClipboardModel.pausedKey))
+
+        let relaunched = try ClipboardHarness(paused: true)
+        #expect(relaunched.model.isPaused, "history resumed on its own after a relaunch")
+        relaunched.copyElsewhere("copied after relaunch while paused")
+        #expect(relaunched.titles.isEmpty)
+
+        relaunched.model.togglePause()
+        #expect(!relaunched.defaults.bool(forKey: ClipboardModel.pausedKey))
     }
 
     @Test func startingRemovesExpiredHistory() throws {

@@ -62,6 +62,28 @@ enum LibraryEntry: Identifiable, Hashable {
     }
 }
 
+/// Why new copies are not being recorded, when they are not.
+enum LibraryStatus: Equatable {
+    /// macOS is set to deny this app the clipboard.
+    case blocked
+    /// The person paused history.
+    case paused
+
+    var message: String {
+        switch self {
+        case .blocked: "macOS is set to deny QuickShot the clipboard, so new copies are not recorded. Allow it under Paste from Other Apps."
+        case .paused: "Clipboard history is paused. New copies are not recorded."
+        }
+    }
+
+    var actionTitle: String {
+        switch self {
+        case .blocked: "Open Settings"
+        case .paused: "Resume"
+        }
+    }
+}
+
 /// The clipboard library's state: what is listed, what is selected, and
 /// whether history is being recorded.
 @MainActor
@@ -90,24 +112,34 @@ final class ClipboardModel {
     @ObservationIgnored private let pasteboard: NSPasteboard
     @ObservationIgnored private let captures: () -> [CaptureItem]
     @ObservationIgnored private var copiedReset: Task<Void, Never>?
+    @ObservationIgnored private let defaults: UserDefaults
+    /// Where "history is paused" is remembered between launches.
+    static let pausedKey = "clipboardHistoryPaused"
 
     /// - Parameter captures: QuickShot's captures, listed in place from their folder.
     init(
         store: ClipStore,
         pasteboard: NSPasteboard = .general,
         captures: @escaping () -> [CaptureItem],
-        frontmostApp: @escaping () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
+        defaults: UserDefaults = .standard,
+        frontmostApp: @escaping () -> String? = ClipboardMonitor.systemFrontmostApp,
         accessDenied: (() -> Bool)? = nil
     ) {
         self.store = store
         self.pasteboard = pasteboard
         self.captures = captures
+        self.defaults = defaults
         monitor = ClipboardMonitor(
             pasteboard: pasteboard, store: store, frontmostApp: frontmostApp, accessDenied: accessDenied
         ) { [weak self] in
             guard let self else { return }
             self.monitorState = self.monitor.state
             self.reload()
+        }
+        // A pause survives a relaunch: history must not resume on its own.
+        if defaults.bool(forKey: Self.pausedKey) {
+            monitor.isPaused = true
+            monitorState = monitor.state
         }
     }
 
@@ -132,6 +164,15 @@ final class ClipboardModel {
 
     var isPaused: Bool { monitorState == .paused }
 
+    /// The notice the library shows while copies are not being recorded.
+    var status: LibraryStatus? {
+        switch monitorState {
+        case .running: nil
+        case .paused: .paused
+        case .blocked: .blocked
+        }
+    }
+
     func reload() {
         attempt {
             collections = try store.collections()
@@ -149,6 +190,7 @@ final class ClipboardModel {
     func togglePause() {
         monitor.isPaused.toggle()
         monitorState = monitor.state
+        defaults.set(monitor.isPaused, forKey: Self.pausedKey)
     }
 
     // MARK: Actions on an entry
@@ -174,18 +216,39 @@ final class ClipboardModel {
     }
 
     /// Saves a copy of the entry into a folder. The entry stays where it is.
-    func export(_ entry: LibraryEntry, to folder: URL) {
-        attempt {
-            let written: [URL]
-            switch entry {
-            case .clip(let item): written = try ClipExporter.export(item, from: store, to: folder)
-            case .capture(let item): written = [try ClipExporter.copy(item.url, to: folder)]
+    /// Files are copied off the main thread, since a recording can be large
+    /// and the destination slow; the receipt appears when the copy is done.
+    @discardableResult
+    func export(_ entry: LibraryEntry, to folder: URL) -> Task<Void, Never> {
+        let work: @Sendable () throws -> [URL]
+        switch entry {
+        case .clip(let item) where item.kind == .files:
+            let paths = item.filePaths
+            work = {
+                if let missing = paths.first(where: { !FileManager.default.fileExists(atPath: $0) }) {
+                    throw ClipExportError.missingFile((missing as NSString).lastPathComponent)
+                }
+                return try paths.map { try ClipExporter.copy(URL(fileURLWithPath: $0), to: folder) }
             }
-            guard let first = written.first else { return }
-            let place = (folder.path as NSString).abbreviatingWithTildeInPath
-            receipt = written.count == 1
-                ? "Saved a copy as \(first.lastPathComponent) in \(place)."
-                : "Saved \(written.count) copies in \(place)."
+        case .clip(let item):
+            // Text and images are small (the store caps them) and need the store.
+            let result = Result { try ClipExporter.export(item, from: store, to: folder) }
+            work = { try result.get() }
+        case .capture(let item):
+            let source = item.url
+            work = { [try ClipExporter.copy(source, to: folder)] }
+        }
+        return Task {
+            do {
+                let written = try await Task.detached(operation: work).value
+                guard let first = written.first else { return }
+                let place = (folder.path as NSString).abbreviatingWithTildeInPath
+                receipt = written.count == 1
+                    ? "Saved a copy as \(first.lastPathComponent) in \(place)."
+                    : "Saved \(written.count) copies in \(place)."
+            } catch {
+                problem = error.localizedDescription
+            }
         }
     }
 
@@ -252,10 +315,9 @@ final class ClipboardModel {
         case .clip(let item):
             return item
         case .capture(let capture):
+            // A capture in a collection is a reference to its file, not a copy.
             let candidate = ClipCandidate.files([capture.url])
-            if create { return try? store.record(candidate) }
-            return (try? store.items(in: .history, matching: capture.url.lastPathComponent))?
-                .first { $0.kind == .files && $0.text == capture.url.path }
+            return create ? try? store.reference(candidate) : try? store.find(candidate)
         }
     }
 
