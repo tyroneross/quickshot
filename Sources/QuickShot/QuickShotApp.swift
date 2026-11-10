@@ -146,19 +146,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Shows the picture's editor, making one on first use. Closing the
     /// window keeps the editor and its boxes; Copy retires it.
     private func openEditor(for item: CaptureItem) {
+        // The same picture, unchanged since: bring its boxes back. A file
+        // edited or replaced under the same name gets a fresh editor, so the
+        // boxes are never drawn on pixels that are gone.
         if let existing = editors[item.id] {
-            existing.editor.wasReopened = !existing.editor.boxes.isEmpty && !existing.window.isVisible
-            NSApp.activate()
-            existing.window.makeKeyAndOrderFront(nil)
-            return
+            if existing.editor.item.modified == item.modified, existing.editor.item.byteCount == item.byteCount {
+                existing.editor.wasReopened = !existing.editor.boxes.isEmpty && !existing.window.isVisible
+                NSApp.activate()
+                existing.window.makeKeyAndOrderFront(nil)
+                return
+            }
+            existing.window.close()
+            editors[item.id] = nil
         }
         do {
             let editor = try AnnotationEditor(item: item)
             let window = AnnotateWindow.make(editor: editor)
-            editor.onFinished = { [weak self] saved in
+            // Weak on both: the window holds the editor, which holds this closure.
+            editor.onFinished = { [weak self, weak window] saved in
                 guard let self else { return }
                 editors[item.id] = nil
-                window.close()
+                window?.close()
                 model.didMark(saved)
                 showLibrary()
             }

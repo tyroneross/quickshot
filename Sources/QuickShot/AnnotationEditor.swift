@@ -35,6 +35,11 @@ final class AnnotationEditor {
     @ObservationIgnored var write: (Data, URL) throws -> URL = { try Annotator.write($0, beside: $1) }
     /// Puts the bytes (and the file, when saved) on the clipboard.
     @ObservationIgnored var copy: (Data, URL?) -> Bool = { CaptureActions.copyPNG($0, file: $1) }
+    /// Removes a file written by a Copy that then failed.
+    @ObservationIgnored var remove: (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }
+    /// A marked file left behind when a failed Copy could not be cleaned up;
+    /// the next Copy writes over it instead of filing a second one.
+    private(set) var leftover: URL?
     /// Called with the saved file once Copy has fully succeeded.
     @ObservationIgnored var onFinished: (URL) -> Void = { _ in }
 
@@ -123,17 +128,32 @@ final class AnnotationEditor {
             saveProblem = "Not saved: the original has been moved or deleted. The marked picture is on the clipboard."
         } else {
             do {
-                saved = try write(data, item.url)
+                if let leftover, FileManager.default.fileExists(atPath: leftover.path) {
+                    try data.write(to: leftover)
+                    saved = leftover
+                } else {
+                    saved = try write(data, item.url)
+                }
             } catch {
                 saveProblem = "Not saved: \(error). The marked picture is on the clipboard."
             }
         }
         guard copy(data, saved) else {
             // Nothing is kept: a retry would otherwise file a second copy.
-            if let saved { try? FileManager.default.removeItem(at: saved) }
+            if let saved {
+                do {
+                    try remove(saved)
+                    leftover = nil
+                } catch {
+                    leftover = saved
+                    problem = "Could not copy to the clipboard. The marked picture was saved as \(saved.lastPathComponent); Copy again to reuse it."
+                    return false
+                }
+            }
             problem = "Could not copy to the clipboard."
             return false
         }
+        leftover = nil
         if let saveProblem {
             problem = saveProblem
             return false

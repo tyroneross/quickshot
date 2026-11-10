@@ -23,9 +23,11 @@ import TestSupport
             try writeRealPNG(to: url, hue: 0.1)
             item = CaptureItem(url: url, kind: .image, created: Date(), byteCount: 1)
             editor = try AnnotationEditor(item: item)
-            editor.copy = { [unowned self] data, file in copies.append((data, file)); return true }
+            editor.copy = { [unowned self] data, file in record(data, file); return true }
             editor.onFinished = { [unowned self] in finished.append($0) }
         }
+
+        func record(_ data: Data, _ file: URL?) { copies.append((data, file)) }
 
         var files: [String] { (try? FileManager.default.contentsOfDirectory(atPath: folder.url.path).sorted()) ?? [] }
     }
@@ -128,6 +130,25 @@ import TestSupport
         #expect(editor.problem == "Could not copy to the clipboard.")
         #expect(bench.finished.isEmpty)
         #expect(bench.files == ["Screenshot 2026-11-09 at 17.10.00.png"], "no half result on disk")
+    }
+
+    @Test func aFileLeftBehindByAFailedCopyIsReusedNotDuplicated() throws {
+        let bench = try Bench()
+        let editor = bench.editor
+        editor.copy = { _, _ in false }
+        editor.remove = { _ in throw CocoaError(.fileWriteNoPermission) }
+        editor.add(Self.big)
+        #expect(!editor.finish())
+        #expect(editor.problem == "Could not copy to the clipboard. The marked picture was saved as Screenshot 2026-11-09 at 17.10.00 (marked).png; Copy again to reuse it.")
+        #expect(editor.leftover?.lastPathComponent == "Screenshot 2026-11-09 at 17.10.00 (marked).png")
+
+        editor.copy = { [unowned bench] data, file in bench.record(data, file); return true }
+        editor.add(Self.small)
+        #expect(editor.finish())
+        #expect(bench.finished.map(\.lastPathComponent) == ["Screenshot 2026-11-09 at 17.10.00 (marked).png"])
+        #expect(bench.files == ["Screenshot 2026-11-09 at 17.10.00 (marked).png", "Screenshot 2026-11-09 at 17.10.00.png"], "one marked file, not two")
+        #expect(editor.leftover == nil)
+        #expect(try Data(contentsOf: bench.finished[0]) == bench.copies.last?.data, "the reused file holds the new render")
     }
 
     @Test func boxesKeptFromAClosedWindowAreAnnounced() throws {
