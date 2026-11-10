@@ -14,15 +14,16 @@ A small macOS app for screenshots and screen recordings. Screenshots use the sys
 | Cancel | Press Escape in the crosshair, or **Cancel** during the count |
 | Know it worked | A screenshot flashes a border around what was captured; every capture shows a notification (or brings the window forward when notifications are off) and is on the clipboard unless you turn that off in Settings. With more than one display, Full Screen copies the last screen's file |
 | Copy a capture again | Select it, then Command C (or the copy symbol in the title bar) |
-| Annotate a screenshot | Select it, then Command Return (opens Preview; use Markup) |
+| Box the part that matters | Select a screenshot, then Command Return (or double-click it). Drag over content to draw a numbered box, as many as you need; click a box and press Delete to remove it; Command Z undoes. **Copy** (Command Return) saves a marked copy next to the original, puts it on the clipboard and selects it, ready to paste into a chat or bug report. Escape closes the editor and keeps your boxes for next time |
+| Add arrows or text | Right-click the screenshot, **Open in Preview**, and use Markup |
 | Trim a recording | Select it, then Command Return (opens QuickTime Player) |
-| Find the file | Click **Saved in ~/Pictures/QuickShot** at the bottom; or select a capture and click the folder symbol; or drag the card into another app |
+| Find the file | Click **Open** beside the folder name at the bottom; or select a capture and click the folder symbol; or drag the card into another app |
 | Remove a capture | Command Delete (moves it to the Trash) |
 | Change the defaults | Command Comma (or **Settings…** in the menu bar item): screenshot fidelity (Lower halves Retina screenshots to their size in points, the default; High keeps every pixel), clipboard copying, recording preset, countdown |
 
 Captures are saved to `~/Pictures/QuickShot`. That folder is the only record: files you add, rename or delete there in Finder show up in the window as they are.
 
-The window sizes itself to its captures until you resize it; after that it keeps your size (the green button fills the screen). Selecting a capture shows four symbols in the title bar: copy, annotate (or open, for a recording), show in Finder, and move to Trash. Hover for the name; right-click a capture for the same actions with names.
+The window sizes itself to its captures until you resize it; after that it keeps your size (the green button fills the screen). Selecting a capture shows four symbols in the title bar: copy, annotate (or open, for a recording), show in Finder, and move to Trash. Hover for the name; right-click a capture for the same actions with names. Marked copies carry a **Marked** chip and are named `<original> (marked).png`; the original is never changed. If a copy or a trash fails, the notice offers **Try Again**.
 
 The menu bar item offers the same capture actions when the window is closed.
 
