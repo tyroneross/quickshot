@@ -61,6 +61,15 @@ public final class ClipStore {
             try database.execute("ALTER TABLE items ADD COLUMN in_history INTEGER NOT NULL DEFAULT 1")
         }
         try database.installContainsFolded()
+        try checkpoint()
+    }
+
+    /// Folds the write-ahead log back into the database file and empties it.
+    /// SQLite does this on its own only once the log passes about 4 MB, and
+    /// the app's one connection lives as long as the app, so without this
+    /// the rows would sit in the log for days.
+    public func checkpoint() throws {
+        try database.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     }
 
     /// The default location: Application Support/QuickShot/Clipboard.

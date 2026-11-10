@@ -247,7 +247,7 @@ final class AppModel {
                 final = await shrunk(result)
                 isSavingRecording = false
             } else if mode != .recording, fidelity == .lower, case .captured? = result {
-                final = shrunkImages(result)
+                final = await shrunkImages(result)
             }
             activeCapture = nil
             handle(final, mode: mode)
@@ -323,7 +323,7 @@ final class AppModel {
     }
 
     func copy(_ item: CaptureItem) {
-        guard CaptureActions.copy(item) else {
+        guard copyToClipboard(item) else {
             notice = .problem("Could not copy \(item.url.lastPathComponent) to the clipboard.")
             return
         }
@@ -376,15 +376,20 @@ final class AppModel {
 
     /// Replaces each Retina screenshot with its 1x version. A picture that
     /// cannot be shrunk is kept as taken.
-    private func shrunkImages(_ result: CaptureResult?) -> CaptureResult? {
+    private func shrunkImages(_ result: CaptureResult?) async -> CaptureResult? {
         guard case .captured(let files)? = result else { return result }
-        var kept: [URL] = []
-        for file in files {
-            guard CaptureFormat.detect(file)?.kind == .image, let small = try? shrinkImage(file) else { kept.append(file); continue }
-            if small != file { try? FileManager.default.removeItem(at: file) }
-            kept.append(small)
-        }
-        return .captured(kept)
+        let shrink = shrinkImage
+        // Decoding and re-encoding a Retina screenshot takes a noticeable
+        // moment; the window and the flash must not wait for it.
+        return await Task.detached(priority: .userInitiated) {
+            var kept: [URL] = []
+            for file in files {
+                guard CaptureFormat.detect(file)?.kind == .image, let small = try? shrink(file) else { kept.append(file); continue }
+                if small != file { try? FileManager.default.removeItem(at: file) }
+                kept.append(small)
+            }
+            return CaptureResult.captured(kept)
+        }.value
     }
 
     /// Replaces each movie in a Quick recording with its 1080p version. If a
@@ -397,7 +402,8 @@ final class AppModel {
             guard CaptureFormat.detect(file)?.kind == .video else { kept.append(file); continue }
             do {
                 let small = try await shrink(file)
-                try? FileManager.default.removeItem(at: file)
+                // The shrinker returns the source itself when it already fits.
+                if small != file { try? FileManager.default.removeItem(at: file) }
                 kept.append(small)
             } catch {
                 kept.append(file)

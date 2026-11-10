@@ -448,6 +448,20 @@ import Testing
         defaults.removePersistentDomain(forName: suite)
     }
 
+    /// The shrink step may hand back the recording itself (already small):
+    /// that file must then be filed, not deleted.
+    @Test func aRecordingThatNeedsNoShrinkIsFiledNotDeleted() async throws {
+        let harness = try Harness(tool: Tool.recordsUntilInterrupted)
+        harness.model.start()
+        harness.model.shrink = { $0 }
+        harness.model.capture(.recording)
+        try await harness.waitUntil { harness.toolRan }
+        harness.model.stopRecording()
+        try await harness.waitUntilIdle()
+        #expect(harness.model.items.count == 1)
+        #expect(harness.model.notice == nil)
+    }
+
     @Test func aDemoRecordingIsKeptAsRecorded() async throws {
         let harness = try Harness(tool: Tool.recordsUntilInterrupted)
         harness.model.start()

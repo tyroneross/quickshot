@@ -64,6 +64,22 @@ import TestSupport
         #expect(CaptureFormat.detect(small)?.kind == .video)
     }
 
+    /// An App or Window Quick recording is made at the Quick size already;
+    /// exporting it again would only cost time and a little quality.
+    @Test func aMovieThatAlreadyFitsIsReturnedAsItIs() async throws {
+        let folder = try TempFolder()
+        let source = folder.url.appendingPathComponent("capture.mov")
+        try Self.makeMovie(at: source, width: 1280, height: 800, frames: 4)
+        #expect(try await MovieShrinker.shrink(source) == source)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.url.path) == ["capture.mov"])
+    }
+
+    @Test func fittingKeepsProportionsAndLeavesSmallSizesAlone() {
+        #expect(MovieShrinker.fitted(CGSize(width: 3456, height: 2234)) == CGSize(width: 1920, height: 1241))
+        #expect(MovieShrinker.fitted(CGSize(width: 1000, height: 2400)) == CGSize(width: 800, height: 1920))
+        #expect(MovieShrinker.fitted(CGSize(width: 1280, height: 800)) == CGSize(width: 1280, height: 800))
+    }
+
     @Test func aFileThatIsNotAMovieIsRefusedAndLeftAlone() async throws {
         let folder = try TempFolder()
         let text = folder.url.appendingPathComponent("notes.mov")

@@ -69,6 +69,7 @@ public final class ClipboardMonitor {
         timer = Timer.scheduledTimer(withTimeInterval: Self.interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
+        timer?.tolerance = Self.interval / 5
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] note in
@@ -101,20 +102,30 @@ public final class ClipboardMonitor {
         }
     }
 
+    /// Idle ticks between access checks (at two ticks a second, five seconds).
+    static let accessCheckEvery = 10
+    private var ticksSinceAccessCheck = accessCheckEvery
+
     /// One check of the pasteboard. The timer calls this; tests call it directly.
     public func tick() {
         guard state != .paused else { return }
-        if accessDenied() {
-            setState(.blocked)
-            return
-        }
-        setState(.running)
+        // Front-app tracking has to run every tick (an app in front between
+        // copies still counts); the access check is dearer and only matters
+        // when there is a new copy to judge, or every so often while idle.
         let current = frontmostApp()
         let recentApps = appsSinceLastTick
         // The next interval starts with whatever is in front now: an app that
         // stays in front across a check still counts for the copy that follows.
         appsSinceLastTick = current.map { [$0] } ?? []
         let count = pasteboard.changeCount
+        ticksSinceAccessCheck += 1
+        guard count != lastChangeCount || ticksSinceAccessCheck >= Self.accessCheckEvery else { return }
+        ticksSinceAccessCheck = 0
+        if accessDenied() {
+            setState(.blocked)
+            return
+        }
+        setState(.running)
         guard count != lastChangeCount else { return }
         lastChangeCount = count
         let outcome = read(pasteboard, current, recentApps)

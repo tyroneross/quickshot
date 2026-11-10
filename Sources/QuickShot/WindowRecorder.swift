@@ -55,8 +55,13 @@ final class WindowRecorder: NSObject, AppRecording {
 
         let configuration = SCStreamConfiguration()
         let scale = filter.pointPixelScale
-        configuration.width = Int(filter.contentRect.width * CGFloat(scale))
-        configuration.height = Int(filter.contentRect.height * CGFloat(scale))
+        var size = CGSize(width: filter.contentRect.width * CGFloat(scale), height: filter.contentRect.height * CGFloat(scale))
+        if preset == .quick {
+            // Record at the Quick size directly, so no second encode is needed.
+            size = MovieShrinker.fitted(size)
+        }
+        configuration.width = max(2, Int(size.width.rounded()))
+        configuration.height = max(2, Int(size.height.rounded()))
         configuration.showsCursor = true
         configuration.capturesAudio = preset == .demo
         configuration.captureMicrophone = preset == .demo

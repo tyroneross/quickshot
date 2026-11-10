@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 
 /// Turns what is on a pasteboard into one item of history, or says why not.
 ///
@@ -91,10 +92,23 @@ public enum ClipboardReader {
         let png = pasteboard.data(forType: .png)
         guard let data = png ?? pasteboard.data(forType: .tiff) else { return .nothing }
         guard data.count <= ClipStore.maxItemBytes else { return .skipped(.tooLarge) }
+        if let png, let size = pixelSize(ofEncoded: png) {
+            // The header has the size; the picture need not be decoded.
+            return .item(ClipCandidate(kind: .image, imageData: png, pixelWidth: size.width, pixelHeight: size.height))
+        }
         guard let bitmap = NSBitmapImageRep(data: data),
               let stored = png ?? bitmap.representation(using: .png, properties: [:])
         else { return .nothing }
         return .item(ClipCandidate(kind: .image, imageData: stored, pixelWidth: bitmap.pixelsWide, pixelHeight: bitmap.pixelsHigh))
+    }
+
+    /// The pixel size from an encoded image's header, without decoding it.
+    static func pixelSize(ofEncoded data: Data) -> (width: Int, height: Int)? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else { return nil }
+        return (width, height)
     }
 }
 
