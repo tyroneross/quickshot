@@ -23,6 +23,21 @@ enum CaptureActions {
                 entry.setData(tiff, forType: .tiff)
             }
         }
+        return write(entry, to: pasteboard)
+    }
+
+    /// Puts PNG bytes on the clipboard, with the file they were saved to when
+    /// there is one. Used by the editor, whose picture may exist only in memory
+    /// when the save failed.
+    @discardableResult
+    static func copyPNG(_ data: Data, file: URL?, to pasteboard: NSPasteboard = .general) -> Bool {
+        let entry = NSPasteboardItem()
+        if let file { entry.setString(file.absoluteString, forType: .fileURL) }
+        entry.setData(data, forType: .png)
+        return write(entry, to: pasteboard)
+    }
+
+    private static func write(_ entry: NSPasteboardItem, to pasteboard: NSPasteboard) -> Bool {
         // Marked as QuickShot's own write, so the clipboard history does not
         // record a capture that is already listed under Screenshots.
         entry.setData(Data(), forType: ClipboardReader.ownWriteType)

@@ -25,8 +25,18 @@ final class AppModel {
     enum Notice: Equatable {
         case permissionNeeded
         case nothingSaved
-        /// Something went wrong. The text is shown as written.
-        case problem(String)
+        /// Something went wrong. The text is shown as written, with a Try
+        /// Again button when the action can simply be repeated.
+        case problem(String, retry: Retry? = nil)
+    }
+
+    /// An action a notice offers to repeat. Equal to itself only, so a notice
+    /// that gains or loses its retry counts as a change.
+    struct Retry: Equatable {
+        private let id = UUID()
+        let action: @MainActor () -> Void
+        init(_ action: @escaping @MainActor () -> Void) { self.action = action }
+        static func == (a: Retry, b: Retry) -> Bool { a.id == b.id }
     }
 
     private(set) var items: [CaptureItem] = []
@@ -122,6 +132,8 @@ final class AppModel {
     @ObservationIgnored var showLibrary: () -> Void = {}
     @ObservationIgnored var hideLibrary: () -> Void = {}
     @ObservationIgnored var isLibraryVisible: () -> Bool = { false }
+    /// Opens the box editor for a picture. Set by the app delegate; tests record it.
+    @ObservationIgnored var openEditor: (CaptureItem) -> Void = { _ in }
 
     /// The capture most recently copied, shown as "Copied" for a moment.
     private(set) var copiedItem: CaptureItem.ID?
@@ -324,10 +336,17 @@ final class AppModel {
 
     func copy(_ item: CaptureItem) {
         guard copyToClipboard(item) else {
-            notice = .problem("Could not copy \(item.url.lastPathComponent) to the clipboard.")
+            notice = .problem("Could not copy \(item.url.lastPathComponent) to the clipboard.",
+                              retry: Retry { [weak self] in self?.notice = nil; self?.copy(item) })
             return
         }
-        copiedItem = item.id
+        notice = nil
+        markCopied(item.id)
+    }
+
+    /// Shows "Copied" on the item for a moment.
+    private func markCopied(_ id: CaptureItem.ID) {
+        copiedItem = id
         copiedReset?.cancel()
         copiedReset = Task {
             try? await Task.sleep(for: .seconds(1.5))
@@ -335,13 +354,40 @@ final class AppModel {
         }
     }
 
+    /// Moves the capture to the Trash and keeps a selection: the next item,
+    /// or the previous one at the end, so the toolbar stays usable.
     func trash(_ item: CaptureItem) {
+        let index = items.firstIndex(of: item)
         do {
             try library.trash(item)
         } catch {
-            notice = .problem("Not moved to the Trash: \(item.url.lastPathComponent) could not be moved (\(error.localizedDescription)). Close any app that has it open and try again.")
+            notice = .problem("Not moved to the Trash: \(item.url.lastPathComponent) could not be moved (\(error.localizedDescription)). Close any app that has it open.",
+                              retry: Retry { [weak self] in self?.notice = nil; self?.trash(item) })
         }
         reload()
+        if selection == nil, let index, !items.isEmpty {
+            selection = items[min(index, items.count - 1)].id
+        }
+    }
+
+    /// Opens a picture in the box editor; a recording opens in QuickTime
+    /// Player as before. A file that has gone is reported, not opened.
+    func annotate(_ item: CaptureItem) {
+        guard item.kind == .image else { CaptureActions.open(item); return }
+        guard FileManager.default.isReadableFile(atPath: item.url.path) else {
+            notice = .problem("Could not open \(item.url.lastPathComponent): the file has moved or been deleted.")
+            reload()
+            return
+        }
+        openEditor(item)
+    }
+
+    /// The editor saved a marked copy and put it on the clipboard: show it
+    /// selected, with the Copied receipt.
+    func didMark(_ url: URL) {
+        reload()
+        selection = url.lastPathComponent
+        markCopied(url.lastPathComponent)
     }
 
     /// Three, two, one. A cancel during the count ends the capture before
@@ -442,7 +488,7 @@ final class AppModel {
             let outcome = CaptureFiler.fileAll(files, into: library.directory)
             reload()
             if !outcome.problems.isEmpty {
-                let earlier: [String] = if case .problem(let text)? = notice { [text] } else { [] }
+                let earlier: [String] = if case .problem(let text, _)? = notice { [text] } else { [] }
                 notice = .problem((earlier + outcome.problems).joined(separator: " "))
             }
             let hasProblem: Bool = if case .problem? = notice { true } else { false }

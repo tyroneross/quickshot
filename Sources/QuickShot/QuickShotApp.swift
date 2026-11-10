@@ -105,11 +105,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         subsystem: Bundle.main.bundleIdentifier ?? "ai.rosslabs.quickshot", category: "hotkey")
     private var window: NSWindow?
     private var clipboardWindow: NSWindow?
+    /// One editor per picture, kept (with its boxes) until Copy or quit.
+    private var editors: [CaptureItem.ID: (window: AnnotateWindow, editor: AnnotationEditor)] = [:]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.showLibrary = { [weak self] in self?.showLibrary() }
         model.hideLibrary = { [weak self] in self?.window?.orderOut(nil) }
         model.isLibraryVisible = { [weak self] in self?.window?.isVisible ?? false }
+        model.openEditor = { [weak self] item in self?.openEditor(for: item) }
         model.notify = { [weak self] item, copied in await self?.notifier.notify(item, copied: copied) ?? false }
         notifier.open = { [weak self] id in
             guard let self else { return }
@@ -138,6 +141,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if clipboardWindow == nil { clipboardWindow = ClipboardWindow.make(model: clipboard) }
         NSApp.activate()
         clipboardWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Shows the picture's editor, making one on first use. Closing the
+    /// window keeps the editor and its boxes; Copy retires it.
+    private func openEditor(for item: CaptureItem) {
+        if let existing = editors[item.id] {
+            existing.editor.wasReopened = !existing.editor.boxes.isEmpty && !existing.window.isVisible
+            NSApp.activate()
+            existing.window.makeKeyAndOrderFront(nil)
+            return
+        }
+        do {
+            let editor = try AnnotationEditor(item: item)
+            let window = AnnotateWindow.make(editor: editor)
+            editor.onFinished = { [weak self] saved in
+                guard let self else { return }
+                editors[item.id] = nil
+                window.close()
+                model.didMark(saved)
+                showLibrary()
+            }
+            editors[item.id] = (window, editor)
+            NSApp.activate()
+            window.makeKeyAndOrderFront(nil)
+        } catch {
+            model.notice = .problem("Could not open \(item.url.lastPathComponent): \(error).")
+        }
     }
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
@@ -265,9 +295,10 @@ enum LibraryWindow {
 
     /// Stops the automatic content sizing the first time the person takes
     /// the window's size into their own hands.
+    @MainActor
     final class SizingHandoff: NSObject, NSWindowDelegate {
         nonisolated(unsafe) static var key = 0
-        private let handOver: () -> Void
+        private let handOver: @MainActor () -> Void
         init<Content: View>(hosting: NSHostingController<Content>) {
             handOver = { hosting.sizingOptions = [] }
         }

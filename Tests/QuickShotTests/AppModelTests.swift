@@ -109,7 +109,7 @@ import Testing
 
         #expect(quits == 0, "the only running copy quit after a failed relaunch")
         #expect(!harness.model.isReopening, "a retry must be possible")
-        guard case .problem(let message)? = harness.model.notice else {
+        guard case .problem(let message, _)? = harness.model.notice else {
             Issue.record("expected a problem notice")
             return
         }
@@ -491,7 +491,7 @@ import Testing
 
         #expect(harness.model.items.count == 1)
         #expect(harness.model.items.first?.kind == .video)
-        guard case .problem(let text)? = harness.model.notice else { Issue.record("expected a notice"); return }
+        guard case .problem(let text, _)? = harness.model.notice else { Issue.record("expected a notice"); return }
         #expect(text.contains("Kept the full-size recording") && text.contains("no encoder"))
     }
 
@@ -642,7 +642,7 @@ import Testing
 
         harness.model.reload()
 
-        guard case .problem(let message)? = harness.model.notice else {
+        guard case .problem(let message, _)? = harness.model.notice else {
             Issue.record("expected a problem notice, got \(String(describing: harness.model.notice))")
             return
         }

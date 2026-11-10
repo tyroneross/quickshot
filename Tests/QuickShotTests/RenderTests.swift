@@ -190,6 +190,63 @@ import Testing
         #expect(try Self.noticeTone(rep) == .info, "the nothing-saved notice was not drawn")
     }
 
+    // MARK: The editor
+
+    /// Any view, on the window surface, drawn off screen.
+    static func render(_ view: some View, size: CGSize, name: String) async throws -> NSBitmapImageRep {
+        _ = NSApplication.shared
+        let host = NSHostingView(rootView: view.background(Color(nsColor: .windowBackgroundColor)))
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = host
+        host.frame = CGRect(origin: .zero, size: size)
+        host.layoutSubtreeIfNeeded()
+        try await settle()
+        host.layoutSubtreeIfNeeded()
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try save(rep, as: name)
+        return rep
+    }
+
+    /// Whether any pixel within `radius` points of `point` is the box blue.
+    /// Compared by hue, as `noticeTone` does: the off-screen bitmap shifts the
+    /// components but keeps the hue, and nothing else drawn is a saturated blue.
+    static func hasBoxBlue(_ rep: NSBitmapImageRep, near point: CGPoint, radius: Int = 3) -> Bool {
+        let boxHue = NSColor(srgbRed: Annotator.boxRed, green: Annotator.boxGreen, blue: Annotator.boxBlue, alpha: 1).hueComponent
+        let scale = CGFloat(rep.pixelsWide) / rep.size.width
+        let cx = Int(point.x * scale), cy = Int(point.y * scale)
+        for x in (cx - radius * Int(scale))...(cx + radius * Int(scale)) {
+            for y in (cy - radius * Int(scale))...(cy + radius * Int(scale)) {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.saturationComponent > 0.5 else { continue }
+                let d = abs(c.hueComponent - boxHue)
+                if min(d, 1 - d) < 0.04 { return true }
+            }
+        }
+        return false
+    }
+
+    @Test func theEditorDrawsItsBoxesWhereTheyAre() async throws {
+        let folder = try TempFolder()
+        let url = folder.url.appendingPathComponent("Screenshot 2026-11-09 at 17.30.00.png")
+        try writeRealPNG(to: url, hue: 0.1)
+        let editor = try AnnotationEditor(item: CaptureItem(url: url, kind: .image, created: Date(), byteCount: 1))
+        editor.add(CGRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5))
+        editor.add(CGRect(x: 0.05, y: 0.05, width: 0.1, height: 0.1))
+        editor.selected = 1
+
+        // 480x360 holds the 640x400 picture at 480x300 after 12 pt of padding on each side:
+        // 456x285, left at 12, top at 37.5.
+        let size = CGSize(width: 480, height: 360)
+        let rep = try await Self.render(AnnotateView(editor: editor), size: size, name: "8-editor-two-boxes")
+        let frame = BoxCanvas.fitted(CGSize(width: 640, height: 400), in: CGSize(width: 456, height: 336))
+            .offsetBy(dx: Layout.padding, dy: Layout.padding)
+        #expect(Self.hasBoxBlue(rep, near: CGPoint(x: frame.minX + frame.width * 0.25, y: frame.midY)), "no stroke on box 1's left edge")
+        #expect(Self.hasBoxBlue(rep, near: CGPoint(x: frame.midX, y: frame.minY + frame.height * 0.25)), "no stroke on box 1's top edge")
+        #expect(!Self.hasBoxBlue(rep, near: CGPoint(x: frame.midX, y: frame.midY), radius: 1), "the inside of the box is the picture")
+        #expect(Self.distinctColours(rep) > 8)
+    }
+
     // MARK: The window takes only the space its content needs
 
     @Test func theWindowIsSmallWithNoCaptures() async throws {

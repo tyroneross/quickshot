@@ -150,18 +150,18 @@ struct FolderFooter: View {
     }
 
     var body: some View {
-        Button {
-            CaptureActions.openFolder(directory)
-        } label: {
+        HStack(spacing: Layout.spacing) {
             Label("Saved in \(Self.shortPath(directory))", systemImage: "folder")
                 .font(.subheadline)
                 .foregroundStyle(Color.supportingText)
                 .lineLimit(1)
                 .truncationMode(.middle)
+            // The path reads as text; the button says it can be opened.
+            Button("Open") { CaptureActions.openFolder(directory) }
+                .controlSize(.small)
+                .help("Open the captures folder in Finder")
+                .accessibilityIdentifier("captures-folder")
         }
-        .buttonStyle(.plain)
-        .help("Open the captures folder in Finder")
-        .accessibilityIdentifier("captures-folder")
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Layout.padding)
         .frame(height: Layout.footerHeight)
@@ -295,14 +295,21 @@ struct ItemActions: View {
                 if let item { model.copy(item) }
             }
             .keyboardShortcut(inToolbar ? KeyboardShortcut("c", modifiers: .command) : nil)
-            .help("Copy to the clipboard")
+            .help(copied ? "Copied" : "Copy to the clipboard")
             .accessibilityIdentifier("copy-capture")
-            Button(isVideo ? "Open" : "Annotate", systemImage: isVideo ? "play.rectangle" : "pencil.tip.crop.circle") {
-                if let item { CaptureActions.open(item) }
+            Button(isVideo ? "Open" : "Annotate", systemImage: isVideo ? "play.rectangle" : "rectangle.badge.plus") {
+                if let item { model.annotate(item) }
             }
             .keyboardShortcut(inToolbar ? KeyboardShortcut(.return, modifiers: .command) : nil)
-            .help(isVideo ? "Open in QuickTime Player" : "Annotate in Preview")
+            .help(isVideo ? "Open in QuickTime Player" : "Draw boxes around content, then copy the marked picture")
             .accessibilityIdentifier("open-capture")
+            if !inToolbar, !isVideo {
+                // Preview's Markup still has arrows and text.
+                Button("Open in Preview", systemImage: "pencil.tip.crop.circle") {
+                    if let item { CaptureActions.open(item) }
+                }
+                .accessibilityIdentifier("open-in-preview")
+            }
             Button("Show in Finder", systemImage: "folder") {
                 if let item { CaptureActions.reveal(item) }
             }
@@ -363,8 +370,9 @@ struct CaptureCard: View {
     let isSelected: Bool
 
     private var kindWord: String { item.kind == .image ? "Screenshot" : "Recording" }
+    /// With seconds: a capture and its marked copy are often a minute apart.
     private var time: String {
-        item.created.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+        item.created.formatted(.dateTime.month(.abbreviated).day().hour().minute().second())
     }
 
     var body: some View {
@@ -394,6 +402,14 @@ struct CaptureCard: View {
                     Text(time)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    if item.isMarked {
+                        // A marked copy sits beside its original with the same minute.
+                        Text("Marked")
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.primary.opacity(Palette.tintOpacity), in: Capsule())
+                    }
                 }
                 .font(.subheadline)
                 .foregroundStyle(Color.supportingText)
@@ -413,12 +429,12 @@ struct CaptureCard: View {
         .buttonStyle(.plain)
         .simultaneousGesture(TapGesture(count: 2).onEnded {
             model.selection = item.id
-            CaptureActions.open(item)
+            model.annotate(item)
         })
         .draggable(item.url)
         .contextMenu { ItemActions(item: item) }
         .help("\(kindWord): \(item.url.lastPathComponent)")
-        .accessibilityLabel("\(kindWord), \(time)")
+        .accessibilityLabel("\(item.isMarked ? "Marked screenshot" : kindWord), \(time)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("capture-card")
     }
@@ -450,8 +466,10 @@ struct NoticeBanner: View {
             }
         case .nothingSaved:
             Banner(tone: .info, text: Copy.nothingSaved, onDismiss: { model.notice = nil })
-        case .problem(let message):
-            Banner(tone: .error, text: message, onDismiss: { model.notice = nil })
+        case .problem(let message, let retry):
+            Banner(tone: .error, text: message,
+                   actionTitle: retry == nil ? nil : "Try Again", action: retry?.action,
+                   onDismiss: { model.notice = nil })
         }
     }
 }
