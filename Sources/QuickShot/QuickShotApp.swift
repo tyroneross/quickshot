@@ -275,13 +275,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 /// Builds the one library window. The window is as large as its content
 /// needs: small with no captures, taller as captures arrive, until the grid
-/// reaches its scroll limit.
+/// reaches its scroll limit. Once the person gives it a size, by any means,
+/// that size is kept, also across launches.
 @MainActor
 enum LibraryWindow {
-    static func make(model: AppModel) -> NSWindow {
-        let hosting = NSHostingController(rootView: LibraryView().environment(model))
+    /// Set once the person has sized the window themselves.
+    static let ownerSizedKey = "QuickShotLibrarySizeIsOwners"
+    /// The window's last frame. Kept here, not by the system's frame
+    /// autosave: that puts the saved size back when the window is first
+    /// shown, after the content has already sized it.
+    static let frameKey = "QuickShotLibraryFrame"
+    /// Where the system's autosave kept the frame before; read once so the
+    /// window stays where it was.
+    static let legacyFrameKey = "NSWindow Frame QuickShotLibrary"
+
+    /// - Parameter sizeDefaults: where "the person sized this window" is
+    ///   remembered; nil remembers nothing, the saved position included.
+    static func make(model: AppModel, sizeDefaults: UserDefaults? = .standard) -> NSWindow {
+        let sizing = ContentSizing(defaults: sizeDefaults, isOwners: sizeDefaults?.bool(forKey: ownerSizedKey) == true)
+        let view = LibraryView(onWantedHeight: { [weak sizing] height in
+            sizing?.wanted = NSSize(width: Layout.windowWidth, height: height)
+        })
+        let hosting = NSHostingController(rootView: view.environment(model))
         hosting.sceneBridgingOptions = [.toolbars]
-        hosting.sizingOptions = [.preferredContentSize]
+        // No automatic sizing: it ties the window to the content with layout
+        // constraints, which pull every other size back on the next layout.
+        // `ContentSizing` applies the content's wanted size instead, which is
+        // also how a resize from anywhere else is told apart.
+        hosting.sizingOptions = []
         let window = NSWindow(contentViewController: hosting)
         window.title = "Captures"
         // The narrow title bar is given to the item actions; the name stays
@@ -290,25 +311,82 @@ enum LibraryWindow {
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
+        // One window, never a tab: a tab takes its group's frame.
+        window.tabbingMode = .disallowed
         window.contentMinSize = NSSize(width: Layout.windowWidth, height: Layout.captureBarHeight)
+        window.setContentSize(NSSize(width: Layout.windowWidth, height: Layout.captureBarHeight + Layout.footerHeight))
         window.center()
-        window.setFrameAutosaveName("QuickShotLibrary")
-        // Content-sized until the person resizes or zooms it; after that the
-        // size is theirs, and the content fills whatever they chose.
-        let sizing = SizingHandoff(hosting: hosting)
+        // An owner-sized window comes back as it was. Otherwise only the
+        // place matters: `follow` gives it the content's size from there.
+        if let saved = sizeDefaults?.string(forKey: frameKey) ?? sizeDefaults?.string(forKey: legacyFrameKey) {
+            window.setFrame(from: saved)
+        }
+        // From here on a resize the app did not make is the person's.
+        sizing.window = window
         window.delegate = sizing
-        objc_setAssociatedObject(window, &SizingHandoff.key, sizing, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(window, &ContentSizing.key, sizing, .OBJC_ASSOCIATION_RETAIN)
+        sizing.follow()
         return window
     }
 
-    /// Stops the automatic content sizing the first time the person takes
-    /// the window's size into their own hands.
+    /// Gives the window the size its content asks for, until the window gets
+    /// a size from anywhere else: an edge drag, the green button, tiling, a
+    /// window manager, a script. From then on the size is the person's.
     @MainActor
-    final class SizingHandoff: NSObject, NSWindowDelegate {
+    final class ContentSizing: NSObject, NSWindowDelegate {
         nonisolated(unsafe) static var key = 0
-        private let handOver: @MainActor () -> Void
-        init<Content: View>(hosting: NSHostingController<Content>) {
-            handOver = { hosting.sizingOptions = [] }
+        weak var window: NSWindow?
+        /// The size the content asks for, reported by the view.
+        var wanted: NSSize = .zero { didSet { if wanted != oldValue { follow() } } }
+        private let defaults: UserDefaults?
+        private var applying = false
+        /// The content size this object last gave the window.
+        private var lastApplied: NSSize?
+        private(set) var isOwners: Bool
+
+        init(defaults: UserDefaults?, isOwners: Bool) {
+            self.defaults = defaults
+            self.isOwners = isOwners
+        }
+
+        /// Sizes the window to its content, keeping the top left corner still.
+        ///
+        /// A resize from outside makes the content measure itself again, and
+        /// that arrives here before the window reports the resize. So the
+        /// window is first checked against the size last set here: if it has
+        /// any other size, somebody else sized it, and it is theirs.
+        func follow() {
+            guard !isOwners, let window else { return }
+            let now = window.contentRect(forFrameRect: window.frame).size
+            if let lastApplied, Self.differ(now, lastApplied) {
+                handOver()
+                return
+            }
+            let asked = wanted
+            guard asked.width > 0, asked.height > 0, Self.differ(now, asked) else {
+                lastApplied = now
+                return
+            }
+            var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: asked))
+            frame.origin = NSPoint(x: window.frame.minX, y: window.frame.maxY - frame.height)
+            // Setting the frame lays the content out, which can land back
+            // here before the window reports this resize: restore, not clear.
+            let wasApplying = applying
+            applying = true
+            defer { applying = wasApplying }
+            window.setFrame(frame, display: true)
+            // What the window took, which a short screen can make smaller.
+            lastApplied = window.contentRect(forFrameRect: window.frame).size
+        }
+
+        private static func differ(_ a: NSSize, _ b: NSSize) -> Bool {
+            abs(a.width - b.width) > 0.5 || abs(a.height - b.height) > 0.5
+        }
+
+        private func handOver() {
+            guard !isOwners else { return }
+            isOwners = true
+            defaults?.set(true, forKey: LibraryWindow.ownerSizedKey)
         }
 
         func windowWillStartLiveResize(_ notification: Notification) { handOver() }
@@ -317,6 +395,19 @@ enum LibraryWindow {
         func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame: NSRect) -> NSRect {
             handOver()
             return window.screen?.visibleFrame ?? defaultFrame
+        }
+
+        /// Any resize the app did not make itself.
+        func windowDidResize(_ notification: Notification) {
+            if !applying { handOver() }
+            saveFrame()
+        }
+
+        func windowDidMove(_ notification: Notification) { saveFrame() }
+
+        private func saveFrame() {
+            guard let window else { return }
+            defaults?.set(window.frameDescriptor, forKey: LibraryWindow.frameKey)
         }
     }
 }

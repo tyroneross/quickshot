@@ -514,6 +514,7 @@ enum ClipboardWindow {
         window.contentMinSize = LibraryLayout.minimumSize
         window.setContentSize(LibraryLayout.defaultSize)
         window.center()
+        window.tabbingMode = .disallowed
         window.setFrameAutosaveName("QuickShotClipboard")
         return window
     }

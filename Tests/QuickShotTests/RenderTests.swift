@@ -53,8 +53,7 @@ import Testing
     /// frame view. The window is never ordered on screen.
     static func realWindow(_ model: AppModel, name: String) async throws -> (window: NSWindow, image: NSBitmapImageRep) {
         _ = NSApplication.shared
-        let window = LibraryWindow.make(model: model)
-        window.setFrameAutosaveName("")
+        let window = LibraryWindow.make(model: model, sizeDefaults: nil)
         window.appearance = NSAppearance(named: .aqua)
         window.layoutIfNeeded()
         try await settle()

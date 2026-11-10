@@ -365,6 +365,7 @@ final class ClipboardHarness {
     static func render(_ model: ClipboardModel, size: NSSize, name: String) async throws -> NSBitmapImageRep {
         _ = NSApplication.shared
         let window = ClipboardWindow.make(model: model)
+        #expect(window.tabbingMode == .disallowed)
         window.setFrameAutosaveName("")
         window.appearance = NSAppearance(named: .aqua)
         window.setContentSize(size)

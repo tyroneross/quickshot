@@ -193,6 +193,9 @@ final class AnnotateWindow: NSWindow {
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
+        // Its own window at the picture's size. As a tab (the system's
+        // "prefer tabs" setting) it would be squeezed into the small library.
+        window.tabbingMode = .disallowed
         window.contentMinSize = minimumSize
         window.setContentSize(Self.contentSize(for: editor.picture.pointSize, on: NSScreen.main))
         window.center()

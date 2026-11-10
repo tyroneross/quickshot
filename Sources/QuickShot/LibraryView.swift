@@ -49,6 +49,22 @@ extension Color {
 
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
+    /// Told the height the content wants, whenever it changes. The window
+    /// follows it until the person sizes the window themselves.
+    var onWantedHeight: (CGFloat) -> Void = { _ in }
+    @State private var bannerHeight: CGFloat = 0
+    @State private var gridHeight: CGFloat = 0
+
+    private var showsBanner: Bool { model.activeCapture == nil && model.notice != nil }
+
+    /// The fixed strips plus whatever the banner and the grid need, the grid
+    /// up to its scroll limit.
+    private var wantedHeight: CGFloat {
+        Layout.captureBarHeight
+            + (showsBanner ? bannerHeight : 0)
+            + (model.items.isEmpty ? 0 : min(gridHeight, Layout.gridMaxIdealHeight))
+            + Layout.footerHeight
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -56,17 +72,18 @@ struct LibraryView: View {
             // While a capture runs, the bar itself says what is happening.
             if model.activeCapture == nil, let notice = model.notice {
                 NoticeBanner(notice: notice)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bannerHeight = $0 }
             }
             // With no captures the buttons are the whole screen: they already
             // say what to do, so nothing is written under them.
             if !model.items.isEmpty {
-                CaptureGrid()
+                CaptureGrid(contentHeight: $gridHeight)
             }
             FolderFooter(directory: model.library.directory)
         }
-        // The ideal size is what the content needs; the window follows it.
         .frame(minWidth: Layout.windowWidth, idealWidth: Layout.windowWidth, maxWidth: .infinity,
                maxHeight: .infinity, alignment: .top)
+        .onChange(of: wantedHeight, initial: true) { _, height in onWantedHeight(height) }
         .toolbar {
             // Present whenever there are captures, greyed out with nothing
             // selected: a title bar that appeared on selection would push
@@ -344,7 +361,8 @@ struct ToolbarOrMenuLabelStyle: LabelStyle {
 
 struct CaptureGrid: View {
     @Environment(AppModel.self) private var model
-    @State private var contentHeight: CGFloat = 0
+    /// What the cards need, measured; the window's wanted height uses it too.
+    @Binding var contentHeight: CGFloat
     private let columns = [GridItem(.adaptive(minimum: Layout.cardMinWidth), spacing: Layout.spacing)]
 
     var body: some View {
