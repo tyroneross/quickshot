@@ -1,24 +1,28 @@
 # QuickShot
 
-A small macOS app for screenshots and screen recordings. Screenshots use the system crosshair picker (the same one as Command Shift 4); recordings start and stop from QuickShot. Every capture is filed into one folder and shown in one small window: a camera button, a record button, and your recent captures. The window is only as large as its content needs.
+A small macOS app for screenshots and screen recordings. Screenshots use the system crosshair (the same one as Command Shift 4) or take the whole screen; recordings cover the screen, an area, or one app. Every capture is filed into one local folder, copied to the clipboard, and shown in one window: three buttons and your recent captures.
 
 ## Use
 
 | To do this | Do this |
 |---|---|
-| Take a screenshot | Press Control Option S in any app, or click the camera button (**Screenshot**). Drag an area, or press Space to pick a window |
-| Record the screen | Press Control Option R in any app, or click the red record button (**Record**). Recording of the main display starts at once and the QuickShot window hides |
-| Stop a recording | Press Control Option R again, choose **Stop Recording** from the QuickShot menu bar item (it turns into a filled record dot), or click the Dock icon and then **Stop Recording** |
-| Cancel a screenshot | Press Escape |
-| Copy a capture | Select it, then Command C (or the copy symbol in the title bar) |
+| Capture the whole screen | Press Control Option F in any app, or click **Full Screen**. Every display, no picker |
+| Capture an area | Press Control Option S in any app, or click **Area**. Drag over the area, or press Space and click a window |
+| Record | Click **Record** and choose **Entire Screen**, **Area** (drag it first) or **App or Window** (pick it in the system picker; only that app is in the movie). Control Option R repeats your last choice. A 3-2-1 count runs first unless you turn **Count Down** off in the Record menu |
+| Choose the recording quality | **Quick** (small 1080p file, clicks shown, no audio; for bug reports and AI) or **Demo** (native resolution, microphone and system audio), under the buttons |
+| Stop a recording | Press Control Option R again, click **Stop Recording**, or choose it from the menu bar item (it turns into a filled record dot) |
+| Cancel | Press Escape in the crosshair, or **Cancel** during the count |
+| Know it worked | A border flashes around what was captured, a notification shows it, and it is already on the clipboard: paste anywhere |
+| Copy a capture again | Select it, then Command C (or the copy symbol in the title bar) |
 | Annotate a screenshot | Select it, then Command Return (opens Preview; use Markup) |
 | Trim a recording | Select it, then Command Return (opens QuickTime Player) |
-| Find the file | Select it, then the folder symbol in the title bar; or drag the card into another app |
+| Find the file | Click **Saved in ~/Pictures/QuickShot** at the bottom; or select a capture and click the folder symbol; or drag the card into another app |
 | Remove a capture | Command Delete (moves it to the Trash) |
+| Change the defaults | Command Comma (or **Settings…** in the menu bar item): screenshot fidelity (Lower halves Retina screenshots to their size in points, the default; High keeps every pixel), clipboard copying, recording preset, countdown |
 
 Captures are saved to `~/Pictures/QuickShot`. That folder is the only record: files you add, rename or delete there in Finder show up in the window as they are.
 
-Selecting a capture shows four symbols in the title bar: copy, annotate (or open, for a recording), show in Finder, and move to Trash. Hover for the name; right-click a capture for the same actions with names.
+The window sizes itself to its captures until you resize it; after that it keeps your size (the green button fills the screen). Selecting a capture shows four symbols in the title bar: copy, annotate (or open, for a recording), show in Finder, and move to Trash. Hover for the name; right-click a capture for the same actions with names.
 
 The menu bar item offers the same capture actions when the window is closed.
 

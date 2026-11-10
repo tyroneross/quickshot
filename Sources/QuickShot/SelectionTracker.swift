@@ -13,6 +13,13 @@ final class SelectionTracker {
     private var wasDown = false
     private(set) var pressed: NSPoint?
     private(set) var released: NSPoint?
+
+    init() {}
+    /// For tests: a tracker that already saw a press and a release.
+    init(pressed: NSPoint, released: NSPoint) {
+        self.pressed = pressed
+        self.released = released
+    }
     /// A drag shorter than this is a click: window mode.
     static let clickTolerance: CGFloat = 4
     /// Polling rate. The pointer can move a few points between the real

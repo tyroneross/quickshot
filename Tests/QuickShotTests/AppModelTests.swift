@@ -790,11 +790,26 @@ final class Notified {
         #expect(SelectionTracker().selection() == nil)
     }
 
+    /// The pointer is sampled, so the release can be a few points off; the
+    /// image's own size fixes the frame, anchored where the drag began.
     @Test func anImageSizeMakesTheFrameExactFromTheDragsStartCorner() {
-        // Dragged down and to the left from (500, 400): the start corner is
-        // the top right, so the image hangs below and left of it.
-        let rect = SelectionTracker.rect(from: NSPoint(x: 500, y: 400), to: NSPoint(x: 300, y: 300))
-        #expect(rect == NSRect(x: 300, y: 300, width: 200, height: 100))
+        let size = NSSize(width: 200, height: 100)
+        let start = NSPoint(x: 500, y: 400)
+        // Up and right: the start is the bottom-left corner.
+        #expect(SelectionTracker(pressed: start, released: NSPoint(x: 697, y: 503)).selection(imageSize: size)
+                == NSRect(x: 500, y: 400, width: 200, height: 100))
+        // Down and left: the start is the top-right corner.
+        #expect(SelectionTracker(pressed: start, released: NSPoint(x: 303, y: 297)).selection(imageSize: size)
+                == NSRect(x: 300, y: 300, width: 200, height: 100))
+        // Down and right: the start is the top-left corner.
+        #expect(SelectionTracker(pressed: start, released: NSPoint(x: 703, y: 297)).selection(imageSize: size)
+                == NSRect(x: 500, y: 300, width: 200, height: 100))
+        // Up and left: the start is the bottom-right corner.
+        #expect(SelectionTracker(pressed: start, released: NSPoint(x: 297, y: 503)).selection(imageSize: size)
+                == NSRect(x: 300, y: 400, width: 200, height: 100))
+        // Without a size the sampled corners are all there is.
+        #expect(SelectionTracker(pressed: start, released: NSPoint(x: 697, y: 503)).selection()
+                == NSRect(x: 500, y: 400, width: 197, height: 103))
     }
 
     @Test func aRetinaImageIsMeasuredInPoints() throws {
