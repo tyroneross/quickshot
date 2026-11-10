@@ -108,6 +108,17 @@ import TestSupport
         #expect(editor.boxes == [Self.big])
     }
 
+    @Test func anOriginalThatHasGoneIsNotGivenAnOrphanCopy() throws {
+        let bench = try Bench()
+        let editor = bench.editor
+        editor.add(Self.big)
+        try FileManager.default.removeItem(at: bench.item.url)
+        #expect(!editor.finish())
+        #expect(bench.copies.count == 1 && bench.copies[0].file == nil, "the picture still reaches the clipboard")
+        #expect(editor.problem == "Not saved: the original has been moved or deleted. The marked picture is on the clipboard.")
+        #expect(bench.files.isEmpty, "nothing is written beside a missing original")
+    }
+
     @Test func aFailedCopyKeepsNothing() throws {
         let bench = try Bench()
         let editor = bench.editor

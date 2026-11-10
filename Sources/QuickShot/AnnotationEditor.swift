@@ -118,10 +118,15 @@ final class AnnotationEditor {
         }
         var saved: URL?
         var saveProblem: String?
-        do {
-            saved = try write(data, item.url)
-        } catch {
-            saveProblem = "Not saved: \(error). The marked picture is on the clipboard."
+        if !FileManager.default.fileExists(atPath: item.url.path) {
+            // The original was trashed meanwhile: no orphan file beside a gap.
+            saveProblem = "Not saved: the original has been moved or deleted. The marked picture is on the clipboard."
+        } else {
+            do {
+                saved = try write(data, item.url)
+            } catch {
+                saveProblem = "Not saved: \(error). The marked picture is on the clipboard."
+            }
         }
         guard copy(data, saved) else {
             // Nothing is kept: a retry would otherwise file a second copy.

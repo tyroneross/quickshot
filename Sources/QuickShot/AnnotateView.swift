@@ -163,11 +163,12 @@ struct BoxCanvas: View {
         context.stroke(path, with: .color(Self.boxColor), style: style)
 
         let diameter = Annotator.badgeDiameter * k
-        // The renderer works bottom-up; here y grows downward, so the corner is (minX, minY).
-        let flipped = Annotator.badgeCentre(
-            for: CGRect(x: rect.minX, y: 0, width: rect.width, height: rect.minY - frame.minY),
-            diameter: diameter, in: CGSize(width: frame.maxX, height: frame.height))
-        let centre = CGPoint(x: flipped.x, y: frame.minY + flipped.y)
+        // The renderer clamps in picture coordinates, bottom-up; here y grows
+        // downward, so the corner is (minX, minY) in picture-local terms.
+        let local = Annotator.badgeCentre(
+            for: CGRect(x: rect.minX - frame.minX, y: 0, width: rect.width, height: rect.minY - frame.minY),
+            diameter: diameter, in: frame.size)
+        let centre = CGPoint(x: frame.minX + local.x, y: frame.minY + local.y)
         let outer = CGRect(x: centre.x - diameter / 2, y: centre.y - diameter / 2, width: diameter, height: diameter)
         context.fill(Path(ellipseIn: outer), with: .color(.white))
         context.fill(Path(ellipseIn: outer.insetBy(dx: Annotator.badgeBorder * k, dy: Annotator.badgeBorder * k)), with: .color(Self.boxColor))

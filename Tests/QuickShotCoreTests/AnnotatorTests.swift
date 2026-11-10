@@ -80,6 +80,34 @@ import TestSupport
         #expect(try Self.bytes(of: Annotator.render(picture, boxes: [])) == Self.bytes(of: picture.image))
     }
 
+    /// Mac screenshots are tagged Display P3. A saturated P3 red would clip in
+    /// an sRGB copy; the renderer keeps the picture's own space.
+    @Test func aDisplayP3PictureKeepsItsColours() throws {
+        let folder = try TempFolder()
+        let source = folder.url.appendingPathComponent("capture.png")
+        let p3 = try #require(CGColorSpace(name: CGColorSpace.displayP3))
+        let context = try #require(CGContext(
+            data: nil, width: 40, height: 30, bitsPerComponent: 8, bytesPerRow: 0,
+            space: p3, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(colorSpace: p3, components: [1, 0, 0, 1])!)
+        context.fill(CGRect(x: 0, y: 0, width: 40, height: 30))
+        try Data(Annotator.pngData(try #require(context.makeImage()), dpi: 72)).write(to: source)
+
+        let picture = try Annotator.load(source)
+        let rendered = try Annotator.render(picture, boxes: [CGRect(x: 0.2, y: 0.2, width: 0.5, height: 0.5)])
+        #expect(rendered.colorSpace?.name == p3.name, "the copy is in the picture's own space")
+        // Read both in the picture's space: a pixel outside the box is the pure P3 red.
+        func red(_ image: CGImage) throws -> [UInt8] {
+            var bytes = [UInt8](repeating: 0, count: 4)
+            let probe = try #require(CGContext(data: &bytes, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: p3,
+                                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            probe.draw(image, in: CGRect(x: -38, y: -1, width: 40, height: 30))
+            return bytes
+        }
+        #expect(try red(rendered) == red(picture.image))
+        #expect(try red(rendered)[0] == 255 && red(rendered)[1] == 0)
+    }
+
     @Test func boxesOutsideThePictureAreClampedNotDropped() throws {
         let folder = try TempFolder()
         let source = folder.url.appendingPathComponent("capture.png")

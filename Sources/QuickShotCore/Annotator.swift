@@ -78,10 +78,13 @@ public enum Annotator {
     public static func render(_ picture: Picture, boxes: [CGRect]) throws -> CGImage {
         let image = picture.image
         let width = image.width, height = image.height
+        // The picture's own colour space (Mac screenshots are Display P3), so
+        // the pixels outside the boxes stay exactly as taken; sRGB for a
+        // space a bitmap context cannot hold.
+        let space = image.colorSpace.flatMap { $0.model == .rgb ? $0 : nil } ?? CGColorSpace(name: CGColorSpace.sRGB)!
         guard let context = CGContext(
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { throw Failure.writeFailed }
         context.interpolationQuality = .high
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
