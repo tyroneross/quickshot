@@ -10,3 +10,9 @@ xcuserdata/
 DerivedData/
 .rally/
 .procedural/
+
+# Handoffs and agent coordination never ship: they carry local paths and identities.
+HANDOFF.md
+HANDOFF-*.md
+handoff*.md
+handoffs/
