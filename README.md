@@ -9,10 +9,10 @@ A small macOS app for screenshots and screen recordings. Screenshots use the sys
 | Capture the whole screen | Press Control Option F in any app, or click **Full Screen**. Every display, no picker |
 | Capture an area | Press Control Option S in any app, or click **Area**. Drag over the area, or press Space and click a window |
 | Record | Click **Record** and choose **Entire Screen**, **Area** (drag it first) or **App or Window** (pick it in the system picker; only that app is in the movie). Control Option R repeats your last choice. A 3-2-1 count runs first unless you turn **Count Down** off in the Record menu |
-| Choose the recording quality | **Quick** (small 1080p file, clicks shown, no audio; for bug reports and AI) or **Demo** (native resolution, microphone and system audio), under the buttons |
+| Choose the recording quality | **Quick** (small 1080p file, no audio; for bug reports and AI) or **Demo** (native resolution, microphone and system audio), under the buttons. Screen and Area recordings also mark mouse clicks; an App or Window recording shows the pointer only |
 | Stop a recording | Press Control Option R again, click **Stop Recording**, or choose it from the menu bar item (it turns into a filled record dot) |
 | Cancel | Press Escape in the crosshair, or **Cancel** during the count |
-| Know it worked | A border flashes around what was captured, a notification shows it, and it is already on the clipboard: paste anywhere. With more than one display, Full Screen copies the last screen's file |
+| Know it worked | A screenshot flashes a border around what was captured; every capture shows a notification (or brings the window forward when notifications are off) and is on the clipboard unless you turn that off in Settings. With more than one display, Full Screen copies the last screen's file |
 | Copy a capture again | Select it, then Command C (or the copy symbol in the title bar) |
 | Annotate a screenshot | Select it, then Command Return (opens Preview; use Markup) |
 | Trim a recording | Select it, then Command Return (opens QuickTime Player) |
@@ -82,15 +82,15 @@ Recent macOS versions also ask from time to time whether an app may keep recordi
 
 ## How it works
 
-- `Sources/QuickShotCore` has no interface code. `CaptureRunner` runs `/usr/sbin/screencapture` as a child process: `-i <file>` for a screenshot and `-v <file>` for a recording, which it ends by interrupting the tool. `CaptureFiler` reads the first bytes of the result to name it by what it is. `CaptureLibrary` lists the folder.
+- `Sources/QuickShotCore` has no interface code. `CaptureRunner` runs `/usr/sbin/screencapture` as a child process: `<file>` for the full screen, `-i <file>` for an area, and `-v` (with `-i -s` for an area) for a recording, which it ends by interrupting the tool. `WindowRecorder` records one app or window through ScreenCaptureKit. `MovieShrinker` and `ImageShrinker` make the smaller Quick and Lower-fidelity files. `CaptureFiler` reads the first bytes of the result to name it by what it is. `CaptureLibrary` lists the folder.
 - The tool's `-U` toolbar is deliberately not used: with it, macOS saves to its own "Save to" location (the Desktop by default) and ignores the file path, so captures never reach the folder.
-- Each capture writes one line to the system log. To see the last ten minutes: `log show --last 10m --predicate 'subsystem == "ai.rosslabs.quickshot"'`
+- Each capture writes one line to the system log. To see the last ten minutes: `/usr/bin/log show --last 10m --predicate 'subsystem == "ai.rosslabs.quickshot"'` (the full path matters in zsh, where `log` is a builtin).
 - `Sources/ClipboardCore` has no interface code either. `ClipboardMonitor` checks the clipboard's change counter twice a second (macOS has no change event), `ClipboardReader` decides what to keep before reading any content, and `ClipStore` saves it using the SQLite that ships with macOS, with images as files named by content hash.
-- `Sources/QuickShot` is the app: the captures window, the clipboard library window, a menu bar item, and three system-wide shortcuts registered through Carbon hot keys, which need no extra permission.
+- `Sources/QuickShot` is the app: the captures window, the clipboard library window, a menu bar item, and four system-wide shortcuts registered through Carbon hot keys, which need no extra permission.
 
 ## Not included
 
-A built-in annotation editor, recording a chosen area or with sound, scrolling capture, cloud sharing, configurable shortcuts, launch at login, pasting into the front app, clipboard sync, and a configurable ignore list.
+A built-in annotation editor, scrolling capture, cloud sharing, configurable shortcuts, launch at login, pasting into the front app, clipboard sync, a configurable ignore list, and copying every display of a multi-display Full Screen capture to the clipboard.
 
 ## Logo
 
