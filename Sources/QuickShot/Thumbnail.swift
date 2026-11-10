@@ -68,12 +68,13 @@ struct ThumbnailView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .task(id: item.id) {
+        // The task restarts when the file changes under the same name.
+        .task(id: Thumbnails.key(for: item.url, byteCount: item.byteCount, modified: item.modified)) {
             // A cached picture shows at once, without a blank frame.
-            if let hit = Thumbnails.cached(for: item.url, byteCount: item.byteCount, modified: item.created) {
+            if let hit = Thumbnails.cached(for: item.url, byteCount: item.byteCount, modified: item.modified) {
                 image = hit
             } else {
-                image = await Thumbnails.image(for: item.url, byteCount: item.byteCount, modified: item.created, scale: displayScale)
+                image = await Thumbnails.image(for: item.url, byteCount: item.byteCount, modified: item.modified, scale: displayScale)
             }
         }
     }

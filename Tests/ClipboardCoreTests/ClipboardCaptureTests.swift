@@ -466,3 +466,36 @@ final class LazyText: NSObject, NSPasteboardItemDataProvider, @unchecked Sendabl
         #expect(FileManager.default.fileExists(atPath: try #require(store.imageURL(for: image)).path))
     }
 }
+
+@MainActor
+@Suite struct MonitorAccessRefreshTests {
+    /// Codex (improve round): an idle monitor checks access only every ten
+    /// ticks, so a permission change showed late. Resuming, and the app coming
+    /// to the front, now force the next tick to check.
+    @Test func resumingChecksAccessOnTheNextTickEvenWhenNothingWasCopied() throws {
+        let folder = try TempFolder()
+        let store = try ClipStore(directory: folder.url)
+        let scratch = ScratchPasteboard()
+        let denied = DeniedBox(false)
+        let monitor = ClipboardMonitor(
+            pasteboard: scratch.pasteboard, store: store, frontmostApp: { nil }, accessDenied: { denied.value }, onChange: {})
+        monitor.tick()
+        #expect(monitor.state == .running)
+        denied.value = true
+        monitor.tick()
+        #expect(monitor.state == .running, "an idle tick does not re-check access")
+        monitor.checkAccessSoon()
+        monitor.tick()
+        #expect(monitor.state == .blocked)
+        denied.value = false
+        monitor.isPaused = true
+        monitor.isPaused = false
+        monitor.tick()
+        #expect(monitor.state == .running, "resuming re-checks on the next tick")
+    }
+}
+
+final class DeniedBox: @unchecked Sendable {
+    var value: Bool
+    init(_ value: Bool) { self.value = value }
+}

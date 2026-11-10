@@ -99,12 +99,20 @@ public final class ClipboardMonitor {
             // Copies made while paused are not picked up afterwards.
             lastChangeCount = pasteboard.changeCount
             setState(newValue ? .paused : .running)
+            // Resuming says "running" only until the next tick confirms access.
+            if !newValue { ticksSinceAccessCheck = Self.accessCheckEvery }
         }
     }
 
     /// Idle ticks between access checks (at two ticks a second, five seconds).
     static let accessCheckEvery = 10
     private var ticksSinceAccessCheck = accessCheckEvery
+
+    /// Makes the next tick check access, for example when the app comes to
+    /// the front after the person may have changed the setting.
+    public func checkAccessSoon() {
+        ticksSinceAccessCheck = Self.accessCheckEvery
+    }
 
     /// One check of the pasteboard. The timer calls this; tests call it directly.
     public func tick() {

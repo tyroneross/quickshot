@@ -150,6 +150,7 @@ final class ClipboardModel {
         tidy()
         reload()
         monitor.start()
+        housekeeping?.cancel()
         housekeeping = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.housekeepingInterval)
@@ -162,6 +163,8 @@ final class ClipboardModel {
 
     static let housekeepingInterval: Duration = .seconds(24 * 60 * 60)
     @ObservationIgnored private var housekeeping: Task<Void, Never>?
+
+    isolated deinit { housekeeping?.cancel() }
 
     /// Expiry by age, then the size budget, then the log folded into the file.
     func tidy() {
@@ -212,6 +215,14 @@ final class ClipboardModel {
         if case .collection(let id) = section, !collections.contains(where: { $0.id == id }) {
             section = .history
         }
+    }
+
+    /// The app came to the front: the person may have changed the clipboard
+    /// permission, so the next check reads it again.
+    func refreshAccess() {
+        monitor.checkAccessSoon()
+        monitor.tick()
+        monitorState = monitor.state
     }
 
     func togglePause() {

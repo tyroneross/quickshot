@@ -2,17 +2,21 @@ import Foundation
 
 /// One capture on disk.
 public struct CaptureItem: Identifiable, Hashable, Sendable {
-    public init(url: URL, kind: CaptureKind, created: Date, byteCount: Int) {
+    public init(url: URL, kind: CaptureKind, created: Date, byteCount: Int, modified: Date = .distantPast) {
         self.url = url
         self.kind = kind
         self.created = created
         self.byteCount = byteCount
+        self.modified = modified
     }
 
     public let url: URL
     public let kind: CaptureKind
     public let created: Date
     public let byteCount: Int
+    /// When the file's content last changed; with the size, it tells a
+    /// capture edited in place from the one shown before.
+    public let modified: Date
 
     /// The file name. The captures folder is flat, so the name is unique, and
     /// unlike a URL it does not vary with how the folder path was spelled
@@ -61,7 +65,8 @@ public struct CaptureLibrary: Sendable {
                   values.isRegularFile == true
             else { return nil }
             let created = values.creationDate ?? values.contentModificationDate ?? .distantPast
-            return CaptureItem(url: url, kind: kind, created: created, byteCount: values.fileSize ?? 0)
+            return CaptureItem(url: url, kind: kind, created: created, byteCount: values.fileSize ?? 0,
+                               modified: values.contentModificationDate ?? created)
         }
         .sorted { ($0.created, $0.url.lastPathComponent) > ($1.created, $1.url.lastPathComponent) }
     }
