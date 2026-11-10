@@ -12,7 +12,7 @@ A small macOS app for screenshots and screen recordings. Screenshots use the sys
 | Choose the recording quality | **Quick** (small 1080p file, clicks shown, no audio; for bug reports and AI) or **Demo** (native resolution, microphone and system audio), under the buttons |
 | Stop a recording | Press Control Option R again, click **Stop Recording**, or choose it from the menu bar item (it turns into a filled record dot) |
 | Cancel | Press Escape in the crosshair, or **Cancel** during the count |
-| Know it worked | A border flashes around what was captured, a notification shows it, and it is already on the clipboard: paste anywhere |
+| Know it worked | A border flashes around what was captured, a notification shows it, and it is already on the clipboard: paste anywhere. With more than one display, Full Screen copies the last screen's file |
 | Copy a capture again | Select it, then Command C (or the copy symbol in the title bar) |
 | Annotate a screenshot | Select it, then Command Return (opens Preview; use Markup) |
 | Trim a recording | Select it, then Command Return (opens QuickTime Player) |
@@ -70,7 +70,9 @@ macOS only lets an app capture other apps' windows after you allow it:
 
 Until then QuickShot refuses to capture, because macOS would otherwise hand back an image of only the desktop wallpaper.
 
-The build is signed ad hoc, which never touches your Keychain. macOS ties the permission to that exact build, so after each rebuild you remove the old QuickShot entry in System Settings and allow the new one. To keep the permission across rebuilds, sign with your own identity:
+A Demo recording also uses the microphone: macOS asks for that once, the first time.
+
+By default the build script signs ad hoc, which never touches your Keychain; macOS then ties the permission to that exact build, so after each rebuild you would remove the old QuickShot entry in System Settings and allow the new one. The installed app on this Mac is signed with the owner's Apple Development identity instead, so the permission survives rebuilds. To do the same, sign with your own identity:
 
 ```bash
 QUICKSHOT_CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" scripts/build-app.sh --install

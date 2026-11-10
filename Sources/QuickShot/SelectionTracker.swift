@@ -45,9 +45,6 @@ final class SelectionTracker {
         // The tool can exit between two ticks: one last look catches a
         // release the timer had not sampled yet.
         poll()
-        if pressed != nil, released == nil, NSEvent.pressedMouseButtons & 1 == 0 {
-            released = NSEvent.mouseLocation
-        }
     }
 
     private func poll() {
