@@ -282,7 +282,7 @@ struct LibraryDetail: View {
         if let entry = model.selectedEntry {
             VStack(alignment: .leading, spacing: 0) {
                 // One line of facts; the content below is what matters.
-                Text("\(entry.kindWord) · \(details(for: entry))")
+                Text(details(for: entry))
                     .font(.subheadline)
                     .foregroundStyle(Color.supportingText)
                     .fixedSize(horizontal: false, vertical: true)

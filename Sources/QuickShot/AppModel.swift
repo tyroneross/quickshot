@@ -339,7 +339,7 @@ final class AppModel {
         do {
             try library.trash(item)
         } catch {
-            notice = .problem("Could not move \(item.url.lastPathComponent) to the Trash: \(error.localizedDescription)")
+            notice = .problem("Not moved to the Trash: \(item.url.lastPathComponent) could not be moved (\(error.localizedDescription)). Close any app that has it open and try again.")
         }
         reload()
     }

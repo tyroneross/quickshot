@@ -24,8 +24,17 @@ struct MenuBarLabel: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        Image(systemName: model.activeCapture == .recording ? "record.circle.fill" : "camera")
-            .accessibilityLabel(model.activeCapture == .recording ? "QuickShot, recording" : "QuickShot")
+        // Says what is true: counting down and saving are not recording.
+        let (symbol, label): (String, String) = if model.activeCapture == .recording, let left = model.countdown {
+            ("timer", "QuickShot, recording in \(left)")
+        } else if model.activeCapture == .recording, model.isSavingRecording {
+            ("camera", "QuickShot, saving the recording")
+        } else if model.activeCapture == .recording {
+            ("record.circle.fill", "QuickShot, recording")
+        } else {
+            ("camera", "QuickShot")
+        }
+        Image(systemName: symbol).accessibilityLabel(label)
     }
 }
 
@@ -161,6 +170,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let active = model.activeCapture else { return .terminateNow }
         if model.isSavingRecording {
             // The recording is made; only the small copy is being written.
+            model.whenIdle { sender.reply(toApplicationShouldTerminate: true) }
+            return .terminateLater
+        }
+        if model.countdown != nil {
+            // Nothing is recorded yet: there is nothing to keep or to ask about.
+            model.cancelCapture()
             model.whenIdle { sender.reply(toApplicationShouldTerminate: true) }
             return .terminateLater
         }

@@ -5,7 +5,7 @@ import SwiftUI
 enum Copy {
     static let permissionOff = "Screen Recording is off."
     static let permissionAsked = "Allow QuickShot in Settings, then reopen it."
-    static let nothingSaved = "Nothing saved: cancelled, or sent to the clipboard."
+    static let nothingSaved = "Nothing saved. The screenshot was cancelled or went to the clipboard."
 }
 
 /// Corner radii, one family.
@@ -24,9 +24,6 @@ enum Layout {
     /// The strip holding the capture buttons. Fixed, so nothing below it
     /// moves when the buttons change to the capturing status.
     static let captureBarHeight: CGFloat = 100
-    /// The Quick/Demo switch under the buttons. Fixed, so the notice and the
-    /// grid below it never move when the wording changes.
-    static let presetRowHeight: CGFloat = 36
     /// The "Saved in" line at the bottom.
     static let footerHeight: CGFloat = 28
     static let cardMinWidth: CGFloat = 140
@@ -56,9 +53,6 @@ struct LibraryView: View {
     var body: some View {
         VStack(spacing: 0) {
             CaptureBar()
-            if model.activeCapture == nil {
-                RecordingPresetRow()
-            }
             // While a capture runs, the bar itself says what is happening.
             if model.activeCapture == nil, let notice = model.notice {
                 NoticeBanner(notice: notice)
@@ -144,38 +138,6 @@ struct CaptureBar: View {
     }
 }
 
-/// The Record button's one setting: Quick or Demo, with what each means.
-struct RecordingPresetRow: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        @Bindable var model = model
-        // The switch sits under the Record button it belongs to; its meaning
-        // reads to the left of it.
-        HStack(spacing: Layout.spacing) {
-            Text(model.recordingPreset.meaning)
-                .font(.subheadline)
-                .foregroundStyle(Color.supportingText)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .multilineTextAlignment(.trailing)
-                .accessibilityIdentifier("recording-preset-meaning")
-            Picker("Recording", selection: $model.recordingPreset) {
-                ForEach(RecordingPreset.allCases, id: \.self) { preset in
-                    Text(preset == .quick ? "Quick" : "Demo").tag(preset)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .accessibilityLabel("Recording quality")
-            .accessibilityIdentifier("recording-preset")
-        }
-        .padding(.horizontal, Layout.padding)
-        .frame(height: Layout.presetRowHeight)
-    }
-}
-
 /// Where the captures live on this Mac. One click opens the folder.
 struct FolderFooter: View {
     let directory: URL
@@ -234,6 +196,7 @@ struct RecordMenu: View {
         Menu {
             ForEach(RecordingTarget.allCases, id: \.self) { target in
                 Button(target.title) { model.record(target) }
+                    .keyboardShortcut(target == model.recordingTarget ? Shortcut.recording.keyboardShortcut : nil)
             }
             Divider()
             Picker("Recording Preset", selection: $model.recordingPreset) {
@@ -244,7 +207,7 @@ struct RecordMenu: View {
             Toggle("Count Down \(AppModel.countdownSeconds) Seconds First", isOn: $model.countsDown)
         } label: {
             TileLabel(title: "Record", symbol: "record.circle", symbolColor: .red,
-                      subtitle: "\(model.recordingTarget.title) ▾", subtitleLabel: "\(model.recordingTarget.title), menu, \(Shortcut.recording.words)")
+                      subtitle: model.recordingTarget.title, subtitleLabel: "\(model.recordingTarget.title), menu, \(Shortcut.recording.words)", isMenu: true)
         }
         .menuStyle(.button)
         .buttonStyle(TileButtonStyle())
@@ -280,6 +243,7 @@ struct TileLabel: View {
     let symbolColor: Color
     let subtitle: String
     let subtitleLabel: String
+    var isMenu = false
 
     var body: some View {
         VStack(spacing: 3) {
@@ -289,11 +253,14 @@ struct TileLabel: View {
                 .accessibilityHidden(true)
             Text(title)
                 .font(.body.weight(.medium))
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(Color.supportingText)
-                .lineLimit(1)
-                .accessibilityLabel(subtitleLabel)
+            HStack(spacing: 3) {
+                Text(subtitle).lineLimit(1)
+                if isMenu { Image(systemName: "chevron.down").font(.caption2) }
+            }
+            .font(.subheadline)
+            .foregroundStyle(Color.supportingText)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(subtitleLabel)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -520,6 +487,7 @@ struct Banner: View {
     var secondaryTitle: String?
     var secondaryAction: (() -> Void)?
     var onDismiss: (() -> Void)?
+    @Environment(\.controlActiveState) private var controlActiveState
 
     private var message: some View {
         Text(text).accessibilityLabel("\(tone.word). \(text)")
@@ -540,7 +508,10 @@ struct Banner: View {
             // A warning's action takes the warning's colour. Black on amber is
             // measured in ContrastTests; white would fail.
             if tone == .warning {
-                Button(action: action) { Text(actionTitle).foregroundStyle(Palette.onWarning) }
+                // In a window that is not key AppKit drops the amber fill, so a
+                // black label would sit on the plain bezel (measured 1.96:1 in
+                // dark). The label follows the fill.
+                Button(action: action) { Text(actionTitle).foregroundStyle(controlActiveState == .key ? Palette.onWarning : Color.primary) }
                     .buttonStyle(.borderedProminent)
                     .tint(tone.color)
                     .accessibilityIdentifier("notice-action")
@@ -558,8 +529,8 @@ struct Banner: View {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: Layout.spacing) {
                     message.lineLimit(1).fixedSize()
-                    Spacer(minLength: 0)
                     actionButton
+                    Spacer(minLength: 0)
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     message.fixedSize(horizontal: false, vertical: true)

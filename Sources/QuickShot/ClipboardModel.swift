@@ -71,7 +71,7 @@ enum LibraryStatus: Equatable {
 
     var message: String {
         switch self {
-        case .blocked: "macOS is set to deny QuickShot the clipboard, so new copies are not recorded. Allow it under Paste from Other Apps."
+        case .blocked: "New copies are not recorded: macOS denies QuickShot the clipboard. Allow it under Paste from Other Apps."
         case .paused: "Clipboard history is paused. New copies are not recorded."
         }
     }
