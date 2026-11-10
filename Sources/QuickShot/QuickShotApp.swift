@@ -10,7 +10,7 @@ struct QuickShotApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView().environment(delegate.model)
+            SettingsView(delegateClipboard: delegate.clipboard).environment(delegate.model)
         }
         MenuBarExtra {
             MenuContent(delegate: delegate).environment(delegate.model)
@@ -284,6 +284,8 @@ enum LibraryWindow {
 /// The few choices that are not on the window itself.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    var delegateClipboard: ClipboardModel?
+    static let budgets = [256, 512, 1024, 2048, 4096].map { $0 * 1024 * 1024 }
 
     var body: some View {
         @Bindable var model = model
@@ -301,6 +303,19 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
                 Toggle("Count down \(AppModel.countdownSeconds) seconds before recording", isOn: $model.countsDown)
+            }
+            if let clipboard = delegateClipboard {
+                @Bindable var clipboard = clipboard
+                Section("Clipboard history") {
+                    Picker("Keep up to", selection: $clipboard.historyBudget) {
+                        ForEach(SettingsView.budgets, id: \.self) { bytes in
+                            Text(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)).tag(bytes)
+                        }
+                    }
+                    Text("Older copies go first; items in a collection are always kept.")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.supportingText)
+                }
             }
             Section("Shortcuts") {
                 LabeledContent("Full Screen", value: Shortcut.fullScreen.words)

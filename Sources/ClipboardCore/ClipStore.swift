@@ -182,6 +182,31 @@ public final class ClipStore {
         return stale.count
     }
 
+    /// Keeps the history within `budget` bytes by removing the least recently
+    /// copied items that are not in any collection, oldest first. Returns how
+    /// many items were removed. The default is a gigabyte.
+    public static let defaultBudgetBytes = 1024 * 1024 * 1024
+
+    @discardableResult
+    public func trim(toBudget budget: Int = ClipStore.defaultBudgetBytes) throws -> Int {
+        var total = try historyBytes()
+        guard total > budget else { return 0 }
+        // `items(where:)` lists newest first; the oldest go first here.
+        let candidates = try items(where: "in_history = 1 AND id NOT IN (SELECT item_id FROM collection_items)", []).reversed()
+        var removed = 0
+        for item in candidates where total > budget {
+            try delete(item)
+            total -= item.byteCount
+            removed += 1
+        }
+        return removed
+    }
+
+    /// The bytes of everything in History (collections are kept regardless).
+    public func historyBytes() throws -> Int {
+        try database.query("SELECT COALESCE(SUM(bytes), 0) FROM items WHERE in_history = 1") { Int($0.int(0)) }.first ?? 0
+    }
+
     /// Removes references that are no longer in History or in any collection.
     private func removeOrphanedReferences() throws {
         let orphans = try items(where: "in_history = 0 AND id NOT IN (SELECT item_id FROM collection_items)", [])

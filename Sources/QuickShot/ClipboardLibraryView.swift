@@ -15,7 +15,6 @@ enum LibraryLayout {
     static let readableWidth: CGFloat = 640
     static let thumbnail: CGFloat = 28
     /// Row thumbnails are decoded at this many pixels, once, then cached.
-    static let thumbnailPixels = 96
 }
 
 /// Sidebar, list and detail pane for everything copied and captured.
@@ -231,9 +230,8 @@ struct EntryThumbnail: View {
     var body: some View {
         switch entry {
         case .clip(let item):
-            if let url = model.store.imageURL(for: item),
-               let image = ThumbnailCache.image(for: url, maxPixels: LibraryLayout.thumbnailPixels) {
-                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+            if let url = model.store.imageURL(for: item) {
+                FileThumbnailView(url: url, placeholder: AnyView(symbol))
             } else {
                 symbol
             }
@@ -247,29 +245,6 @@ struct EntryThumbnail: View {
             Rectangle().fill(.quaternary)
             Image(systemName: entry.symbol).accessibilityHidden(true).foregroundStyle(Color.supportingText)
         }
-    }
-}
-
-/// Small versions of stored images, decoded once. A stored image never
-/// changes (its file is named by its content), so the cache never goes stale.
-@MainActor
-enum ThumbnailCache {
-    private static let cache = NSCache<NSString, NSImage>()
-
-    static func image(for url: URL, maxPixels: Int) -> NSImage? {
-        let key = url.path as NSString
-        if let cached = cache.object(forKey: key) { return cached }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-        ]
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-        else { return nil }
-        let image = NSImage(cgImage: thumbnail, size: NSSize(width: thumbnail.width, height: thumbnail.height))
-        cache.setObject(image, forKey: key)
-        return image
     }
 }
 

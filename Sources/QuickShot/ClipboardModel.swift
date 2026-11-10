@@ -144,11 +144,38 @@ final class ClipboardModel {
     }
 
     /// Clears expired history, loads the lists and starts recording copies.
+    /// Expiry runs again once a day while the app stays open, since it may
+    /// never be relaunched.
     func start() {
-        attempt { _ = try store.expire() }
+        tidy()
         reload()
         monitor.start()
+        housekeeping = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.housekeepingInterval)
+                guard let self, !Task.isCancelled else { return }
+                tidy()
+                reload()
+            }
+        }
     }
+
+    static let housekeepingInterval: Duration = .seconds(24 * 60 * 60)
+    @ObservationIgnored private var housekeeping: Task<Void, Never>?
+
+    /// Expiry by age, then the size budget, then the log folded into the file.
+    func tidy() {
+        attempt { _ = try store.expire() }
+        attempt { _ = try store.trim(toBudget: historyBudget) }
+        attempt { try store.checkpoint() }
+    }
+
+    /// The most history to keep, in bytes. Remembered.
+    var historyBudget: Int {
+        get { defaults.object(forKey: Self.budgetKey) as? Int ?? ClipStore.defaultBudgetBytes }
+        set { defaults.set(newValue, forKey: Self.budgetKey); tidy(); reload() }
+    }
+    static let budgetKey = "clipboardHistoryBudgetBytes"
 
     var entries: [LibraryEntry] {
         guard section == .captures else { return clips.map(LibraryEntry.clip) }

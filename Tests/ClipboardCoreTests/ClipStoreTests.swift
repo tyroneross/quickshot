@@ -42,6 +42,40 @@ func imageCandidate(width: Int = 40, height: Int = 30, white: CGFloat = 0.5) -> 
         #expect(items[1].byteCount == 5)
     }
 
+    /// The budget removes the least recently copied history first and never
+    /// touches a collection; under budget it removes nothing.
+    @Test func theBudgetTrimsOldestHistoryFirstAndKeepsCollections() throws {
+        let folder = try TempFolder()
+        let store = try ClipStore(directory: folder.url)
+        let old = try #require(try store.record(.text("old " + String(repeating: "x", count: 100)), at: now))
+        let kept = try #require(try store.record(.text("kept " + String(repeating: "y", count: 100)), at: now.addingTimeInterval(1)))
+        let newest = try #require(try store.record(.text("newest " + String(repeating: "z", count: 100)), at: now.addingTimeInterval(2)))
+        let saved = try store.createCollection(named: "Keep")
+        try store.add(kept, to: saved)
+        let total = try store.historyBytes()
+        #expect(total > 300)
+
+        #expect(try store.trim(toBudget: total) == 0, "under or at budget removes nothing")
+        // Room for about two items: the oldest unsaved one goes, the saved one stays.
+        let removed = try store.trim(toBudget: total - 50)
+        #expect(removed == 1)
+        let remaining = try store.items(in: .history).map { $0.id }
+        #expect(remaining.contains(newest.id) && remaining.contains(kept.id) && !remaining.contains(old.id))
+        #expect(try store.historyBytes() <= total - 50)
+    }
+
+    @Test func checkpointFoldsTheLogIntoTheDatabaseFile() throws {
+        let folder = try TempFolder()
+        let store = try ClipStore(directory: folder.url)
+        for i in 0..<20 { try store.record(.text("row \(i) " + String(repeating: "w", count: 500)), at: now.addingTimeInterval(Double(i))) }
+        try store.checkpoint()
+        let wal = folder.url.appendingPathComponent("clipboard.sqlite-wal")
+        let walSize = (try? FileManager.default.attributesOfItem(atPath: wal.path)[.size] as? Int) ?? 0
+        let main = (try? FileManager.default.attributesOfItem(atPath: folder.url.appendingPathComponent("clipboard.sqlite").path)[.size] as? Int) ?? 0
+        #expect(walSize == 0, "the log is empty after a truncating checkpoint")
+        #expect(main > 4096, "the rows live in the database file")
+    }
+
     @Test func theSameContentCopiedAgainUpdatesTheItemInsteadOfAddingOne() throws {
         let folder = try TempFolder()
         let store = try ClipStore(directory: folder.url)
